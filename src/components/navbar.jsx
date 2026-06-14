@@ -8,15 +8,8 @@ export default function Navbar() {
   }
 
   return (
-    <nav style={{
-      display: 'flex',
-      alignItems: 'center',
-      gap: '1.5rem',
-      padding: '1rem 2rem',
-      background: '#1a1a2e',
-      color: 'white'
-    }}>
-      <span style={{ fontWeight: 'bold', fontSize: '1.1rem', marginRight: 'auto' }}>🎮 HobbyMatch</span>
+    <nav style={{ display: 'flex', alignItems: 'center', gap: '1.5rem', padding: '1rem 2rem', background: '#1a1a2e', color: 'white' }}>
+      <span style={{ fontWeight: 'bold', fontSize: '1.1rem', marginRight: 'auto' }}>🎮 FindMyCrew</span>
       <Link to="/" style={{ color: 'white', textDecoration: 'none' }}>Home</Link>
       <Link to="/browse" style={{ color: 'white', textDecoration: 'none' }}>Browse</Link>
       <Link to="/profile" style={{ color: 'white', textDecoration: 'none' }}>Profile</Link>

@@ -9,25 +9,13 @@ export default function Browse() {
   useEffect(() => {
     const load = async () => {
       const { data: { user } } = await supabase.auth.getUser()
-
-      const { data: me } = await supabase
-        .from('profiles')
-        .select('hobbies')
-        .eq('id', user.id)
-        .single()
-
-      const { data: others } = await supabase
-        .from('profiles')
-        .select('*')
-        .neq('id', user.id)
-
-      // Sort by hobby overlap
+      const { data: me } = await supabase.from('profiles').select('hobbies').eq('id', user.id).single()
+      const { data: others } = await supabase.from('profiles').select('*').neq('id', user.id)
       const sorted = (others || []).sort((a, b) => {
         const overlapA = (a.hobbies || []).filter(h => (me?.hobbies || []).includes(h)).length
         const overlapB = (b.hobbies || []).filter(h => (me?.hobbies || []).includes(h)).length
         return overlapB - overlapA
       })
-
       setProfiles(sorted)
       setLoading(false)
     }
