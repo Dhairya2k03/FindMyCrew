@@ -6,6 +6,7 @@ import Home from './pages/Home'
 import Login from './pages/Login'
 import Profile from './pages/Profile'
 import Browse from './pages/Browse'
+import Connections from './pages/Connections'
 
 export default function App() {
   useEffect(() => {
@@ -22,6 +23,7 @@ export default function App() {
         <Route path="/login" element={<Login />} />
         <Route path="/profile" element={<Profile />} />
         <Route path="/browse" element={<Browse />} />
+        <Route path="/connections" element={<Connections />} />
       </Routes>
     </BrowserRouter>
   )
