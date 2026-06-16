@@ -5,27 +5,41 @@ export default function Connections() {
   const [received, setReceived] = useState([])
   const [sent, setSent] = useState([])
   const [loading, setLoading] = useState(true)
-  const [currentUserId, setCurrentUserId] = useState(null)
 
   useEffect(() => {
     const load = async () => {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) return
-      setCurrentUserId(user.id)
 
+      // Get received requests
       const { data: receivedData } = await supabase
         .from('connections')
-        .select('*, sender:sender_id(id, username, email, hobbies)')
+        .select('*')
         .eq('receiver_id', user.id)
         .eq('status', 'pending')
 
+      // Get sent requests
       const { data: sentData } = await supabase
         .from('connections')
-        .select('*, receiver:receiver_id(id, username, email, hobbies)')
+        .select('*')
         .eq('sender_id', user.id)
 
-      setReceived(receivedData || [])
-      setSent(sentData || [])
+      // Get all profile IDs we need
+      const ids = [
+        ...(receivedData || []).map(c => c.sender_id),
+        ...(sentData || []).map(c => c.receiver_id)
+      ]
+
+      const { data: profiles } = await supabase
+        .from('profiles')
+        .select('*')
+        .in('id', ids)
+
+      const profileMap = {}
+      profiles?.forEach(p => { profileMap[p.id] = p })
+
+      setReceived((receivedData || []).map(c => ({ ...c, sender: profileMap[c.sender_id] })))
+      setSent((sentData || []).map(c => ({ ...c, receiver: profileMap[c.receiver_id] })))
       setLoading(false)
     }
     load()
