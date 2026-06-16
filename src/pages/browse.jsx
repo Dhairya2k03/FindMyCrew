@@ -6,12 +6,14 @@ export default function Browse() {
   const [profiles, setProfiles] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
+  const [currentUserId, setCurrentUserId] = useState(null)
 
   useEffect(() => {
     const load = async () => {
       try {
         const { data: { user } } = await supabase.auth.getUser()
         if (!user) { setError('Not logged in'); setLoading(false); return }
+        setCurrentUserId(user.id)
 
         const { data: me } = await supabase.from('profiles').select('hobbies').eq('id', user.id).single()
         const { data: others, error: fetchError } = await supabase.from('profiles').select('*').neq('id', user.id)
@@ -42,7 +44,7 @@ export default function Browse() {
         <p style={{ color: '#555' }}>No other players yet — invite some friends!</p>
       ) : (
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '1rem' }}>
-          {profiles.map(p => <HobbyCard key={p.id} profile={p} />)}
+          {profiles.map(p => <HobbyCard key={p.id} profile={p} currentUserId={currentUserId} />)}
         </div>
       )}
     </div>
