@@ -7,6 +7,7 @@ import Login from './pages/Login'
 import Profile from './pages/Profile'
 import Browse from './pages/Browse'
 import Connections from './pages/Connections'
+import Chat from './pages/Chat'
 
 export default function App() {
   useEffect(() => {
@@ -24,6 +25,7 @@ export default function App() {
         <Route path="/profile" element={<Profile />} />
         <Route path="/browse" element={<Browse />} />
         <Route path="/connections" element={<Connections />} />
+        <Route path="/chat/:userId" element={<Chat />} />
       </Routes>
     </BrowserRouter>
   )
