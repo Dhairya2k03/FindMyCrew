@@ -7,6 +7,7 @@ export default function Browse() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [currentUserId, setCurrentUserId] = useState(null)
+  const [search, setSearch] = useState('')
 
   useEffect(() => {
     const load = async () => {
@@ -14,37 +15,65 @@ export default function Browse() {
         const { data: { user } } = await supabase.auth.getUser()
         if (!user) { setError('Not logged in'); setLoading(false); return }
         setCurrentUserId(user.id)
-
         const { data: me } = await supabase.from('profiles').select('hobbies').eq('id', user.id).single()
         const { data: others, error: fetchError } = await supabase.from('profiles').select('*').neq('id', user.id)
-
         if (fetchError) { setError(fetchError.message); setLoading(false); return }
-
         const sorted = (others || []).sort((a, b) => {
           const overlapA = (a.hobbies || []).filter(h => (me?.hobbies || []).includes(h)).length
           const overlapB = (b.hobbies || []).filter(h => (me?.hobbies || []).includes(h)).length
           return overlapB - overlapA
         })
         setProfiles(sorted)
-      } catch (e) {
-        setError(e.message)
-      }
+      } catch (e) { setError(e.message) }
       setLoading(false)
     }
     load()
   }, [])
 
-  if (loading) return <p style={{ padding: '2rem' }}>Loading players...</p>
-  if (error) return <p style={{ padding: '2rem', color: 'red' }}>Error: {error}</p>
+  const filtered = profiles.filter(p =>
+    (p.username || p.email || '').toLowerCase().includes(search.toLowerCase())
+  )
+
+  if (loading) return (
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 'calc(100vh - 64px)' }}>
+      <p style={{ color: '#888' }}>Finding players...</p>
+    </div>
+  )
 
   return (
-    <div style={{ padding: '2rem' }}>
-      <h2 style={{ marginBottom: '1.5rem' }}>Find Players 🎮</h2>
-      {profiles.length === 0 ? (
-        <p style={{ color: '#555' }}>No other players yet — invite some friends!</p>
+    <div style={{ padding: '2rem', maxWidth: '1100px', margin: '0 auto' }}>
+      <div style={{ marginBottom: '2rem' }}>
+        <h2 style={{ fontSize: '1.75rem', fontWeight: '700', marginBottom: '0.5rem' }}>Find Players 🎮</h2>
+        <p style={{ color: '#888' }}>Players are sorted by how many hobbies you share</p>
+      </div>
+
+      <input
+        type="text"
+        placeholder="Search by username..."
+        value={search}
+        onChange={e => setSearch(e.target.value)}
+        style={{
+          padding: '0.75rem 1rem',
+          borderRadius: '10px',
+          border: '1px solid rgba(255,255,255,0.1)',
+          background: 'rgba(255,255,255,0.05)',
+          color: 'white',
+          fontFamily: 'Inter, sans-serif',
+          fontSize: '0.95rem',
+          width: '100%',
+          maxWidth: '400px',
+          marginBottom: '2rem',
+          outline: 'none'
+        }}
+      />
+
+      {error && <p style={{ color: '#f44336' }}>Error: {error}</p>}
+
+      {filtered.length === 0 ? (
+        <p style={{ color: '#888' }}>No players found.</p>
       ) : (
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '1rem' }}>
-          {profiles.map(p => <HobbyCard key={p.id} profile={p} currentUserId={currentUserId} />)}
+          {filtered.map(p => <HobbyCard key={p.id} profile={p} currentUserId={currentUserId} />)}
         </div>
       )}
     </div>
