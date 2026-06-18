@@ -10,13 +10,20 @@ const GAMING_OPTIONS = [
   { label: 'Indie', icon: '🎨' },
   { label: 'Horror', icon: '👻' },
   { label: 'Battle Royale', icon: '🏆' },
+  { label: 'PC', icon: '💻' },
+  { label: 'Xbox', icon: '🟢' },
+  { label: 'PlayStation', icon: '🔵' },
+  { label: 'Switch', icon: '🔴' },
+  { label: 'Mobile', icon: '📱' },
 ]
+
 
 export default function Profile() {
   const [user, setUser] = useState(null)
   const [selected, setSelected] = useState([])
   const [username, setUsername] = useState('')
   const [saved, setSaved] = useState(false)
+  const [platforms, setPlatforms] = useState([])
 
   useEffect(() => {
     const load = async () => {
