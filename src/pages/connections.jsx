@@ -53,85 +53,139 @@ export default function Connections() {
     else setReceived(prev => prev.map(c => c.id === connectionId ? { ...c, status } : c))
   }
 
-  if (loading) return <p style={{ padding: '2rem' }}>Loading...</p>
+  if (loading) return <p style={{ padding: '2rem', color: '#888' }}>Loading...</p>
 
   const pendingReceived = received.filter(c => c.status === 'pending')
   const acceptedReceived = received.filter(c => c.status === 'accepted')
+  const acceptedSent = sent.filter(c => c.status === 'accepted')
+  const pendingSent = sent.filter(c => c.status === 'pending')
+
+  const cardStyle = {
+    border: '1px solid rgba(255,255,255,0.08)',
+    borderRadius: '12px',
+    padding: '1rem 1.5rem',
+    background: 'rgba(255,255,255,0.03)',
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center'
+  }
+
+  const tagStyle = {
+    background: 'rgba(108, 99, 255, 0.2)',
+    color: '#a78bfa',
+    padding: '2px 8px',
+    borderRadius: '100px',
+    fontSize: '0.75rem',
+    border: '1px solid rgba(108, 99, 255, 0.3)'
+  }
+
+  const btnStyle = {
+    padding: '0.5rem 1.25rem',
+    background: 'linear-gradient(135deg, #6c63ff, #a78bfa)',
+    color: 'white',
+    border: 'none',
+    borderRadius: '8px',
+    cursor: 'pointer',
+    fontFamily: 'Inter, sans-serif',
+    fontWeight: '600',
+    fontSize: '0.9rem'
+  }
 
   return (
-    <div style={{ padding: '2rem', maxWidth: '600px', margin: '0 auto' }}>
-      <h2 style={{ marginBottom: '1.5rem' }}>Connections</h2>
+    <div style={{ padding: '2rem', maxWidth: '650px', margin: '0 auto' }}>
+      <h2 style={{ fontSize: '1.75rem', fontWeight: '700', marginBottom: '2rem' }}>Connections</h2>
 
-      <h3 style={{ marginBottom: '1rem', color: '#1a1a2e' }}>Incoming Requests ({pendingReceived.length})</h3>
+      {/* Incoming Requests */}
+      <h3 style={{ marginBottom: '1rem', color: '#a78bfa', fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+        Incoming Requests ({pendingReceived.length})
+      </h3>
       {pendingReceived.length === 0 ? (
         <p style={{ color: '#555', marginBottom: '2rem' }}>No pending requests.</p>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', marginBottom: '2rem' }}>
           {pendingReceived.map(c => (
-            <div key={c.id} style={{ border: '1px solid #ddd', borderRadius: '12px', padding: '1rem', background: 'white', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div key={c.id} style={cardStyle}>
               <div>
-                <p style={{ fontWeight: 'bold' }}>{c.sender?.username || c.sender?.email?.split('@')[0]}</p>
-                <div style={{ display: 'flex', gap: '0.3rem', flexWrap: 'wrap', marginTop: '0.3rem' }}>
+                <p style={{ fontWeight: '600', marginBottom: '0.5rem' }}>
+                  {c.sender?.username || c.sender?.email?.split('@')[0] || 'Unknown'}
+                </p>
+                <div style={{ display: 'flex', gap: '0.3rem', flexWrap: 'wrap' }}>
                   {(c.sender?.hobbies || []).map(h => (
-                    <span key={h} style={{ background: '#6c63ff', color: 'white', padding: '2px 8px', borderRadius: '12px', fontSize: '0.75rem' }}>{h}</span>
+                    <span key={h} style={tagStyle}>{h}</span>
                   ))}
                 </div>
               </div>
               <div style={{ display: 'flex', gap: '0.5rem' }}>
-                <button onClick={() => respond(c.id, 'accepted')} style={{ padding: '0.4rem 1rem', background: '#4caf50', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer' }}>Accept</button>
-                <button onClick={() => respond(c.id, 'declined')} style={{ padding: '0.4rem 1rem', background: '#f44336', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer' }}>Decline</button>
+                <button onClick={() => respond(c.id, 'accepted')} style={{ ...btnStyle, background: 'linear-gradient(135deg, #10b981, #34d399)' }}>Accept</button>
+                <button onClick={() => respond(c.id, 'declined')} style={{ ...btnStyle, background: 'rgba(255,255,255,0.05)', color: '#888', border: '1px solid rgba(255,255,255,0.1)' }}>Decline</button>
               </div>
             </div>
           ))}
         </div>
       )}
 
-      <h3 style={{ marginBottom: '1rem', color: '#1a1a2e' }}>Connected ({acceptedReceived.length + sent.filter(c => c.status === 'accepted').length})</h3>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', marginBottom: '2rem' }}>
-        {acceptedReceived.map(c => (
-          <div key={c.id} style={{ border: '1px solid #ddd', borderRadius: '12px', padding: '1rem', background: 'white', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <div>
-              <p style={{ fontWeight: 'bold' }}>{c.sender?.username || c.sender?.email?.split('@')[0]}</p>
-              <div style={{ display: 'flex', gap: '0.3rem', flexWrap: 'wrap', marginTop: '0.3rem' }}>
-                {(c.sender?.hobbies || []).map(h => (
-                  <span key={h} style={{ background: '#6c63ff', color: 'white', padding: '2px 8px', borderRadius: '12px', fontSize: '0.75rem' }}>{h}</span>
-                ))}
-              </div>
-            </div>
-            <button onClick={() => navigate(`/chat/${c.sender_id}`)} style={{ padding: '0.4rem 1rem', background: '#6c63ff', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer' }}>Message</button>
-          </div>
-        ))}
-        {sent.filter(c => c.status === 'accepted').map(c => (
-          <div key={c.id} style={{ border: '1px solid #ddd', borderRadius: '12px', padding: '1rem', background: 'white', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <div>
-              <p style={{ fontWeight: 'bold' }}>{c.receiver?.username || c.receiver?.email?.split('@')[0]}</p>
-              <div style={{ display: 'flex', gap: '0.3rem', flexWrap: 'wrap', marginTop: '0.3rem' }}>
-                {(c.receiver?.hobbies || []).map(h => (
-                  <span key={h} style={{ background: '#6c63ff', color: 'white', padding: '2px 8px', borderRadius: '12px', fontSize: '0.75rem' }}>{h}</span>
-                ))}
-              </div>
-            </div>
-            <button onClick={() => navigate(`/chat/${c.receiver_id}`)} style={{ padding: '0.4rem 1rem', background: '#6c63ff', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer' }}>Message</button>
-          </div>
-        ))}
-      </div>
-
-      <h3 style={{ marginBottom: '1rem', color: '#1a1a2e' }}>Pending Sent ({sent.filter(c => c.status === 'pending').length})</h3>
-      {sent.filter(c => c.status === 'pending').length === 0 ? (
-        <p style={{ color: '#555' }}>No pending sent requests.</p>
+      {/* Connected */}
+      <h3 style={{ marginBottom: '1rem', color: '#a78bfa', fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+        Connected ({acceptedReceived.length + acceptedSent.length})
+      </h3>
+      {acceptedReceived.length === 0 && acceptedSent.length === 0 ? (
+        <p style={{ color: '#555', marginBottom: '2rem' }}>No connections yet.</p>
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-          {sent.filter(c => c.status === 'pending').map(c => (
-            <div key={c.id} style={{ border: '1px solid #ddd', borderRadius: '12px', padding: '1rem', background: 'white', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', marginBottom: '2rem' }}>
+          {acceptedReceived.map(c => (
+            <div key={c.id} style={cardStyle}>
               <div>
-                <p style={{ fontWeight: 'bold' }}>{c.receiver?.username || c.receiver?.email?.split('@')[0]}</p>
-                <div style={{ display: 'flex', gap: '0.3rem', flexWrap: 'wrap', marginTop: '0.3rem' }}>
-                  {(c.receiver?.hobbies || []).map(h => (
-                    <span key={h} style={{ background: '#6c63ff', color: 'white', padding: '2px 8px', borderRadius: '12px', fontSize: '0.75rem' }}>{h}</span>
+                <p style={{ fontWeight: '600', marginBottom: '0.5rem' }}>
+                  {c.sender?.username || c.sender?.email?.split('@')[0] || 'Unknown'}
+                </p>
+                <div style={{ display: 'flex', gap: '0.3rem', flexWrap: 'wrap' }}>
+                  {(c.sender?.hobbies || []).map(h => (
+                    <span key={h} style={tagStyle}>{h}</span>
                   ))}
                 </div>
               </div>
-              <span style={{ fontSize: '0.85rem', color: '#888', fontWeight: 'bold' }}>⏳ Pending</span>
+              <button onClick={() => navigate(`/chat/${c.sender_id}`)} style={btnStyle}>Message</button>
+            </div>
+          ))}
+          {acceptedSent.map(c => (
+            <div key={c.id} style={cardStyle}>
+              <div>
+                <p style={{ fontWeight: '600', marginBottom: '0.5rem' }}>
+                  {c.receiver?.username || c.receiver?.email?.split('@')[0] || 'Unknown'}
+                </p>
+                <div style={{ display: 'flex', gap: '0.3rem', flexWrap: 'wrap' }}>
+                  {(c.receiver?.hobbies || []).map(h => (
+                    <span key={h} style={tagStyle}>{h}</span>
+                  ))}
+                </div>
+              </div>
+              <button onClick={() => navigate(`/chat/${c.receiver_id}`)} style={btnStyle}>Message</button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Pending Sent */}
+      <h3 style={{ marginBottom: '1rem', color: '#a78bfa', fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+        Pending Sent ({pendingSent.length})
+      </h3>
+      {pendingSent.length === 0 ? (
+        <p style={{ color: '#555' }}>No pending sent requests.</p>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+          {pendingSent.map(c => (
+            <div key={c.id} style={cardStyle}>
+              <div>
+                <p style={{ fontWeight: '600', marginBottom: '0.5rem' }}>
+                  {c.receiver?.username || c.receiver?.email?.split('@')[0] || 'Unknown'}
+                </p>
+                <div style={{ display: 'flex', gap: '0.3rem', flexWrap: 'wrap' }}>
+                  {(c.receiver?.hobbies || []).map(h => (
+                    <span key={h} style={tagStyle}>{h}</span>
+                  ))}
+                </div>
+              </div>
+              <span style={{ fontSize: '0.85rem', color: '#888', fontWeight: '500' }}>⏳ Pending</span>
             </div>
           ))}
         </div>
