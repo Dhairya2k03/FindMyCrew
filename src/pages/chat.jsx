@@ -25,13 +25,20 @@ export default function Chat() {
   }, [userId])
 
   useEffect(() => {
+    if (!currentUser) return
     const channel = supabase.channel('messages')
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, payload => {
         const msg = payload.new
         if (
           (msg.sender_id === currentUser?.id && msg.receiver_id === userId) ||
           (msg.sender_id === userId && msg.receiver_id === currentUser?.id)
-        ) setMessages(prev => [...prev, msg])
+        ) {
+          setMessages(prev => {
+            const exists = prev.some(m => m.id === msg.id)
+            if (exists) return prev
+            return [...prev, msg]
+          })
+        }
       })
       .subscribe()
     return () => supabase.removeChannel(channel)
@@ -43,8 +50,27 @@ export default function Chat() {
 
   const sendMessage = async () => {
     if (!newMessage.trim()) return
-    await supabase.from('messages').insert({ sender_id: currentUser.id, receiver_id: userId, content: newMessage.trim() })
+    const content = newMessage.trim()
     setNewMessage('')
+
+    const tempMsg = {
+      id: `temp-${Date.now()}`,
+      sender_id: currentUser.id,
+      receiver_id: userId,
+      content,
+      created_at: new Date()
+    }
+    setMessages(prev => [...prev, tempMsg])
+
+    const { data } = await supabase.from('messages').insert({
+      sender_id: currentUser.id,
+      receiver_id: userId,
+      content
+    }).select().single()
+
+    if (data) {
+      setMessages(prev => prev.map(m => m.id === tempMsg.id ? data : m))
+    }
   }
 
   const name = otherUser?.username || otherUser?.email?.split('@')[0] || 'Player'
@@ -53,6 +79,8 @@ export default function Chat() {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 64px)', maxWidth: '700px', margin: '0 auto', padding: '1.5rem' }}>
+      
+      {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '1.5rem', padding: '1rem 1.5rem', background: 'rgba(255,255,255,0.03)', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.08)' }}>
         <div style={{ width: '40px', height: '40px', borderRadius: '50%', background: color, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: '700' }}>
           {name[0]?.toUpperCase()}
@@ -63,6 +91,7 @@ export default function Chat() {
         </div>
       </div>
 
+      {/* Messages */}
       <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '0.75rem', marginBottom: '1rem', padding: '0.5rem' }}>
         {messages.length === 0 && (
           <div style={{ textAlign: 'center', color: '#888', marginTop: '3rem' }}>
@@ -73,10 +102,14 @@ export default function Chat() {
         {messages.map(msg => (
           <div key={msg.id} style={{
             alignSelf: msg.sender_id === currentUser?.id ? 'flex-end' : 'flex-start',
-            background: msg.sender_id === currentUser?.id ? 'linear-gradient(135deg, #6c63ff, #a78bfa)' : 'rgba(255,255,255,0.08)',
+            background: msg.sender_id === currentUser?.id
+              ? 'linear-gradient(135deg, #6c63ff, #a78bfa)'
+              : 'rgba(255,255,255,0.08)',
             color: 'white',
             padding: '0.65rem 1rem',
-            borderRadius: msg.sender_id === currentUser?.id ? '18px 18px 4px 18px' : '18px 18px 18px 4px',
+            borderRadius: msg.sender_id === currentUser?.id
+              ? '18px 18px 4px 18px'
+              : '18px 18px 18px 4px',
             maxWidth: '70%',
             fontSize: '0.95rem',
             lineHeight: 1.4
@@ -87,6 +120,7 @@ export default function Chat() {
         <div ref={bottomRef} />
       </div>
 
+      {/* Input */}
       <div style={{ display: 'flex', gap: '0.75rem' }}>
         <input
           type="text"
