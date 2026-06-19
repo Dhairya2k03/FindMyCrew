@@ -8,6 +8,7 @@ export default function Browse() {
   const [error, setError] = useState(null)
   const [currentUserId, setCurrentUserId] = useState(null)
   const [search, setSearch] = useState('')
+  const [connectionMap, setConnectionMap] = useState({})
 
   useEffect(() => {
     const load = async () => {
@@ -15,9 +16,20 @@ export default function Browse() {
         const { data: { user } } = await supabase.auth.getUser()
         if (!user) { setError('Not logged in'); setLoading(false); return }
         setCurrentUserId(user.id)
+
         const { data: me } = await supabase.from('profiles').select('hobbies').eq('id', user.id).single()
         const { data: others, error: fetchError } = await supabase.from('profiles').select('*').neq('id', user.id)
         if (fetchError) { setError(fetchError.message); setLoading(false); return }
+
+        // Load all connections involving this user
+        const { data: sentConns } = await supabase.from('connections').select('*').eq('sender_id', user.id)
+        const { data: receivedConns } = await supabase.from('connections').select('*').eq('receiver_id', user.id)
+
+        const map = {}
+        sentConns?.forEach(c => { map[c.receiver_id] = c.status })
+        receivedConns?.forEach(c => { map[c.sender_id] = c.status })
+        setConnectionMap(map)
+
         const sorted = (others || []).sort((a, b) => {
           const overlapA = (a.hobbies || []).filter(h => (me?.hobbies || []).includes(h)).length
           const overlapB = (b.hobbies || []).filter(h => (me?.hobbies || []).includes(h)).length
@@ -73,7 +85,14 @@ export default function Browse() {
         <p style={{ color: '#888' }}>No players found.</p>
       ) : (
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '1rem' }}>
-          {filtered.map(p => <HobbyCard key={p.id} profile={p} currentUserId={currentUserId} />)}
+          {filtered.map(p => (
+            <HobbyCard
+              key={p.id}
+              profile={p}
+              currentUserId={currentUserId}
+              connectionStatus={connectionMap[p.id] || null}
+            />
+          ))}
         </div>
       )}
     </div>
