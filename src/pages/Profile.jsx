@@ -23,10 +23,8 @@ const GAMES_BY_PLATFORM = {
 export default function Profile() {
   const [user, setUser] = useState(null)
   const [username, setUsername] = useState('')
-  const [saved, setSaved] = useState(false)
   const [selectedPlatforms, setSelectedPlatforms] = useState([])
   const [selectedGames, setSelectedGames] = useState([])
-  const [activePlatform, setActivePlatform] = useState(null)
   const navigate = useNavigate()
 
   useEffect(() => {
@@ -44,10 +42,15 @@ export default function Profile() {
   }, [])
 
   const togglePlatform = (id) => {
-    setSelectedPlatforms(prev =>
-      prev.includes(id) ? prev.filter(p => p !== id) : [...prev, id]
-    )
-    setActivePlatform(id)
+    setSelectedPlatforms(prev => {
+      const newPlatforms = prev.includes(id) ? prev.filter(p => p !== id) : [...prev, id]
+      // Remove games from deselected platform
+      if (prev.includes(id)) {
+        const removedGames = GAMES_BY_PLATFORM[id] || []
+        setSelectedGames(g => g.filter(game => !removedGames.includes(game)))
+      }
+      return newPlatforms
+    })
   }
 
   const toggleGame = (game) => {
@@ -55,6 +58,17 @@ export default function Profile() {
       prev.includes(game) ? prev.filter(g => g !== game) : [...prev, game]
     )
   }
+
+  // Combine all games from all selected platforms, deduplicated
+  const availableGames = [...new Set(
+    selectedPlatforms.flatMap(p => GAMES_BY_PLATFORM[p] || [])
+  )]
+
+  // Group games by platform for display
+  const gamesBySelectedPlatform = selectedPlatforms.map(p => ({
+    platform: PLATFORMS.find(pl => pl.id === p),
+    games: GAMES_BY_PLATFORM[p] || []
+  }))
 
   const saveProfile = async () => {
     if (!user) return alert('Not logged in')
@@ -73,7 +87,6 @@ export default function Profile() {
   const avatarColors = ['#6c63ff', '#f59e0b', '#10b981', '#ef4444', '#3b82f6', '#ec4899']
   const name = username || user?.email?.split('@')[0] || 'U'
   const color = avatarColors[name.charCodeAt(0) % avatarColors.length]
-  const availableGames = activePlatform ? GAMES_BY_PLATFORM[activePlatform] : []
 
   return (
     <div style={{ padding: '2rem', maxWidth: '650px', margin: '0 auto' }}>
@@ -109,9 +122,9 @@ export default function Profile() {
             onClick={() => togglePlatform(id)}
             style={{
               padding: '0.6rem 1.25rem',
-              background: selectedPlatforms.includes(id) ? 'linear-gradient(135deg, #6c63ff, #a78bfa)' : activePlatform === id ? 'rgba(108,99,255,0.15)' : 'rgba(255,255,255,0.05)',
+              background: selectedPlatforms.includes(id) ? 'linear-gradient(135deg, #6c63ff, #a78bfa)' : 'rgba(255,255,255,0.05)',
               color: selectedPlatforms.includes(id) ? 'white' : '#888',
-              border: selectedPlatforms.includes(id) ? 'none' : activePlatform === id ? '1px solid rgba(108,99,255,0.5)' : '1px solid rgba(255,255,255,0.1)',
+              border: selectedPlatforms.includes(id) ? 'none' : '1px solid rgba(255,255,255,0.1)',
               borderRadius: '100px',
               cursor: 'pointer',
               fontSize: '0.9rem',
@@ -125,40 +138,49 @@ export default function Profile() {
         ))}
       </div>
 
-      {/* Game picker */}
-      {activePlatform && (
+      {/* Games grouped by platform */}
+      {selectedPlatforms.length > 0 && (
         <>
           <label style={{ display: 'block', marginBottom: '1rem', fontWeight: '500', color: '#aaa', fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-            Games on {PLATFORMS.find(p => p.id === activePlatform)?.label}
+            Select Your Games
           </label>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '2rem' }}>
-            {availableGames.map(game => (
-              <button
-                key={game}
-                onClick={() => toggleGame(game)}
-                style={{
-                  padding: '0.6rem 1.25rem',
-                  background: selectedGames.includes(game) ? 'rgba(108,99,255,0.2)' : 'rgba(255,255,255,0.05)',
-                  color: selectedGames.includes(game) ? '#a78bfa' : '#888',
-                  border: selectedGames.includes(game) ? '1px solid rgba(108,99,255,0.5)' : '1px solid rgba(255,255,255,0.1)',
-                  borderRadius: '100px',
-                  cursor: 'pointer',
-                  fontSize: '0.9rem',
-                  fontWeight: '500',
-                  fontFamily: 'Inter, sans-serif'
-                }}
-              >
-                {selectedGames.includes(game) ? '✓ ' : ''}{game}
-              </button>
-            ))}
-          </div>
+          {gamesBySelectedPlatform.map(({ platform, games }) => (
+            <div key={platform.id} style={{ marginBottom: '1.5rem' }}>
+              <p style={{ color: '#a78bfa', fontWeight: '600', fontSize: '0.85rem', marginBottom: '0.75rem' }}>
+                {platform.icon} {platform.label}
+              </p>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem' }}>
+                {games.map(game => (
+                  <button
+                    key={game}
+                    onClick={() => toggleGame(game)}
+                    style={{
+                      padding: '0.6rem 1.25rem',
+                      background: selectedGames.includes(game) ? 'rgba(108,99,255,0.2)' : 'rgba(255,255,255,0.05)',
+                      color: selectedGames.includes(game) ? '#a78bfa' : '#888',
+                      border: selectedGames.includes(game) ? '1px solid rgba(108,99,255,0.5)' : '1px solid rgba(255,255,255,0.1)',
+                      borderRadius: '100px',
+                      cursor: 'pointer',
+                      fontSize: '0.9rem',
+                      fontWeight: '500',
+                      fontFamily: 'Inter, sans-serif'
+                    }}
+                  >
+                    {selectedGames.includes(game) ? '✓ ' : ''}{game}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ))}
         </>
       )}
 
       {/* Selected games summary */}
       {selectedGames.length > 0 && (
         <div style={{ marginBottom: '2rem', padding: '1rem 1.5rem', background: 'rgba(108,99,255,0.08)', borderRadius: '12px', border: '1px solid rgba(108,99,255,0.2)' }}>
-          <p style={{ color: '#a78bfa', fontWeight: '600', marginBottom: '0.75rem', fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Selected Games ({selectedGames.length})</p>
+          <p style={{ color: '#a78bfa', fontWeight: '600', marginBottom: '0.75rem', fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+            Selected Games ({selectedGames.length})
+          </p>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
             {selectedGames.map(game => (
               <span
@@ -179,7 +201,6 @@ export default function Profile() {
       >
         Save & Set Game Levels →
       </button>
-      {saved && <span style={{ marginLeft: '1rem', color: '#4caf50', fontWeight: '500' }}>✓ Saved!</span>}
     </div>
   )
 }
