@@ -8,6 +8,7 @@ import Profile from './pages/Profile'
 import Browse from './pages/Browse'
 import Connections from './pages/Connections'
 import Chat from './pages/Chat'
+import GameLevels from './pages/GameLevels'
 
 function ProtectedRoute({ user, children }) {
   if (!user) return <Navigate to="/login" />
@@ -23,7 +24,6 @@ export default function App() {
       setUser(user)
       setLoading(false)
     })
-
     supabase.auth.onAuthStateChange((event, session) => {
       setUser(session?.user ?? null)
     })
@@ -41,6 +41,7 @@ export default function App() {
         <Route path="/profile" element={<ProtectedRoute user={user}><Profile /></ProtectedRoute>} />
         <Route path="/connections" element={<ProtectedRoute user={user}><Connections /></ProtectedRoute>} />
         <Route path="/chat/:userId" element={<ProtectedRoute user={user}><Chat /></ProtectedRoute>} />
+        <Route path="/game-levels" element={<ProtectedRoute user={user}><GameLevels /></ProtectedRoute>} />
         <Route path="*" element={<Navigate to={user ? "/" : "/login"} />} />
       </Routes>
     </BrowserRouter>

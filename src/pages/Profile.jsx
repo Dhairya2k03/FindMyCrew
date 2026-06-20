@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabaseClient'
 
 const PLATFORMS = [
@@ -26,6 +27,7 @@ export default function Profile() {
   const [selectedPlatforms, setSelectedPlatforms] = useState([])
   const [selectedGames, setSelectedGames] = useState([])
   const [activePlatform, setActivePlatform] = useState(null)
+  const navigate = useNavigate()
 
   useEffect(() => {
     const load = async () => {
@@ -65,13 +67,12 @@ export default function Profile() {
       updated_at: new Date()
     })
     if (error) alert(error.message)
-    else { setSaved(true); setTimeout(() => setSaved(false), 3000) }
+    else navigate('/game-levels')
   }
 
   const avatarColors = ['#6c63ff', '#f59e0b', '#10b981', '#ef4444', '#3b82f6', '#ec4899']
   const name = username || user?.email?.split('@')[0] || 'U'
   const color = avatarColors[name.charCodeAt(0) % avatarColors.length]
-
   const availableGames = activePlatform ? GAMES_BY_PLATFORM[activePlatform] : []
 
   return (
@@ -160,7 +161,11 @@ export default function Profile() {
           <p style={{ color: '#a78bfa', fontWeight: '600', marginBottom: '0.75rem', fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Selected Games ({selectedGames.length})</p>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
             {selectedGames.map(game => (
-              <span key={game} style={{ background: 'rgba(108,99,255,0.2)', color: '#a78bfa', padding: '3px 10px', borderRadius: '100px', fontSize: '0.8rem', border: '1px solid rgba(108,99,255,0.3)', cursor: 'pointer' }} onClick={() => toggleGame(game)}>
+              <span
+                key={game}
+                onClick={() => toggleGame(game)}
+                style={{ background: 'rgba(108,99,255,0.2)', color: '#a78bfa', padding: '3px 10px', borderRadius: '100px', fontSize: '0.8rem', border: '1px solid rgba(108,99,255,0.3)', cursor: 'pointer' }}
+              >
                 {game} ✕
               </span>
             ))}
@@ -172,7 +177,7 @@ export default function Profile() {
         onClick={saveProfile}
         style={{ padding: '0.85rem 2.5rem', background: 'linear-gradient(135deg, #6c63ff, #a78bfa)', color: 'white', border: 'none', borderRadius: '10px', fontSize: '1rem', fontWeight: '600', cursor: 'pointer', fontFamily: 'Inter, sans-serif', boxShadow: '0 0 30px rgba(108, 99, 255, 0.3)' }}
       >
-        Save Profile
+        Save & Set Game Levels →
       </button>
       {saved && <span style={{ marginLeft: '1rem', color: '#4caf50', fontWeight: '500' }}>✓ Saved!</span>}
     </div>
