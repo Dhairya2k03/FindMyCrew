@@ -9,6 +9,8 @@ import Browse from './pages/Browse'
 import Connections from './pages/Connections'
 import Chat from './pages/Chat'
 import GameLevels from './pages/GameLevels'
+import Groups from './pages/Groups'
+import GroupChat from './pages/GroupChat'
 
 function ProtectedRoute({ user, children }) {
   if (!user) return <Navigate to="/login" />
@@ -42,6 +44,8 @@ export default function App() {
         <Route path="/connections" element={<ProtectedRoute user={user}><Connections /></ProtectedRoute>} />
         <Route path="/chat/:userId" element={<ProtectedRoute user={user}><Chat /></ProtectedRoute>} />
         <Route path="/game-levels" element={<ProtectedRoute user={user}><GameLevels /></ProtectedRoute>} />
+        <Route path="/groups" element={<ProtectedRoute user={user}><Groups /></ProtectedRoute>} />
+        <Route path="/groups/:groupId" element={<ProtectedRoute user={user}><GroupChat /></ProtectedRoute>} />
         <Route path="*" element={<Navigate to={user ? "/" : "/login"} />} />
       </Routes>
     </BrowserRouter>

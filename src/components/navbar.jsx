@@ -32,6 +32,7 @@ export default function Navbar() {
       {[
         { path: '/', label: 'Home' },
         { path: '/browse', label: 'Browse' },
+        { path: '/groups', label: 'Groups' },
         { path: '/connections', label: 'Connections' },
         { path: '/profile', label: 'Profile' },
       ].map(({ path, label }) => (
@@ -55,8 +56,7 @@ export default function Navbar() {
         borderRadius: '8px',
         cursor: 'pointer',
         fontFamily: 'Inter, sans-serif',
-        fontSize: '0.9rem',
-        transition: 'all 0.2s'
+        fontSize: '0.9rem'
       }}>
         Logout
       </button>
