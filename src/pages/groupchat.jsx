@@ -98,6 +98,14 @@ export default function GroupChat() {
     setMembers(prev => prev.filter(m => m.id !== memberId))
   }
 
+  const generateInvite = async () => {
+    const code = Math.random().toString(36).substring(2, 10)
+    await supabase.from('groups').update({ invite_code: code }).eq('id', groupId)
+    const link = `${window.location.origin}/invite/${code}`
+    await navigator.clipboard.writeText(link)
+    alert('Invite link copied to clipboard!')
+  }
+
   const isLeader = group?.leader_id === currentUser?.id
 
   const getName = (userId) => {
@@ -120,6 +128,11 @@ export default function GroupChat() {
           <button onClick={() => navigate('/groups')} style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer', fontFamily: 'Inter, sans-serif', marginBottom: '1rem', padding: 0, fontSize: '0.9rem' }}>
             ← Back to Groups
           </button>
+          {isLeader && (
+            <button onClick={generateInvite} style={{ width: '100%', padding: '0.6rem', background: 'rgba(108,99,255,0.15)', color: '#a78bfa', border: '1px solid rgba(108,99,255,0.3)', borderRadius: '8px', cursor: 'pointer', fontFamily: 'Inter, sans-serif', fontWeight: '600', fontSize: '0.85rem', marginBottom: '0.5rem' }}>
+              🔗 Copy Invite Link
+            </button>
+          )}
           <h3 style={{ fontWeight: '700', fontSize: '1.1rem', marginBottom: '0.25rem' }}>{group?.name}</h3>
           <p style={{ color: '#a78bfa', fontSize: '0.85rem' }}>{group?.game}</p>
         </div>
