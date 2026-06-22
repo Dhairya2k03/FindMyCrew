@@ -84,7 +84,7 @@ export default function Chat() {
     setUploading(true)
 
     const fileName = `${currentUser.id}-${Date.now()}-${file.name}`
-    const { data: uploadData, error: uploadError } = await supabase.storage
+    const { error: uploadError } = await supabase.storage
       .from('chat-images')
       .upload(fileName, file)
 
