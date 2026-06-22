@@ -22,6 +22,19 @@ export default function Chat() {
         .or(`and(sender_id.eq.${user.id},receiver_id.eq.${userId}),and(sender_id.eq.${userId},receiver_id.eq.${user.id})`)
         .order('created_at', { ascending: true })
       setMessages(msgs || [])
+      // Mark messages as read
+await supabase.from('messages')
+  .update({ read_at: new Date().toISOString() })
+  .eq('receiver_id', user.id)
+  .eq('sender_id', userId)
+  .is('read_at', null)
+
+      // Mark messages as read
+      await supabase.from('messages')
+        .update({ read_at: new Date().toISOString() })
+        .eq('receiver_id', user.id)
+        .eq('sender_id', userId)
+        .is('read_at', null)
     }
     load()
   }, [userId])
