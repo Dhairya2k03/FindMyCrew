@@ -9,9 +9,21 @@ export default function Login() {
 
   const handleSubmit = async () => {
     if (isSignUp) {
-      const { error } = await supabase.auth.signUp({ email, password })
+      const { data, error } = await supabase.auth.signUp({ email, password })
       if (error) alert(error.message)
-      else setMessage('Account created! You can now log in.')
+      else {
+        if (data.user) {
+          await supabase.from('profiles').upsert({
+            id: data.user.id,
+            email: data.user.email,
+            username: email.split('@')[0],
+            hobbies: [],
+            platforms: [],
+            updated_at: new Date()
+          })
+        }
+        setMessage('Account created! You can now log in.')
+      }
     } else {
       const { error } = await supabase.auth.signInWithPassword({ email, password })
       if (error) alert(error.message)
@@ -58,29 +70,46 @@ export default function Login() {
         {message && <p style={{ color: '#4caf50', marginBottom: '1rem', fontSize: '0.9rem' }}>{message}</p>}
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-          <input type="email" placeholder="Email address" value={email} onChange={e => setEmail(e.target.value)} style={inputStyle} />
-          <input type="password" placeholder="Password" value={password} onChange={e => setPassword(e.target.value)} style={inputStyle} onKeyDown={e => e.key === 'Enter' && handleSubmit()} />
-          <button onClick={handleSubmit} style={{
-            padding: '0.85rem',
-            background: 'linear-gradient(135deg, #6c63ff, #a78bfa)',
-            color: 'white',
-            border: 'none',
-            borderRadius: '10px',
-            fontSize: '1rem',
-            fontWeight: '600',
-            cursor: 'pointer',
-            fontFamily: 'Inter, sans-serif',
-            marginTop: '0.5rem'
-          }}>
+          <input
+            type="email"
+            placeholder="Email address"
+            value={email}
+            onChange={e => setEmail(e.target.value)}
+            style={inputStyle}
+          />
+          <input
+            type="password"
+            placeholder="Password"
+            value={password}
+            onChange={e => setPassword(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && handleSubmit()}
+            style={inputStyle}
+          />
+          <button
+            onClick={handleSubmit}
+            style={{
+              padding: '0.85rem',
+              background: 'linear-gradient(135deg, #6c63ff, #a78bfa)',
+              color: 'white',
+              border: 'none',
+              borderRadius: '10px',
+              fontSize: '1rem',
+              fontWeight: '600',
+              cursor: 'pointer',
+              fontFamily: 'Inter, sans-serif',
+              marginTop: '0.5rem'
+            }}
+          >
             {isSignUp ? 'Create Account' : 'Sign In'}
           </button>
         </div>
 
         <p style={{ textAlign: 'center', marginTop: '1.5rem', color: '#888', fontSize: '0.9rem' }}>
           {isSignUp ? 'Already have an account?' : "Don't have an account?"}
-          <button onClick={() => setIsSignUp(!isSignUp)} style={{
-            background: 'none', border: 'none', color: '#a78bfa', cursor: 'pointer', marginLeft: '0.5rem', fontFamily: 'Inter, sans-serif', fontSize: '0.9rem', fontWeight: '600'
-          }}>
+          <button
+            onClick={() => { setIsSignUp(!isSignUp); setMessage('') }}
+            style={{ background: 'none', border: 'none', color: '#a78bfa', cursor: 'pointer', marginLeft: '0.5rem', fontFamily: 'Inter, sans-serif', fontSize: '0.9rem', fontWeight: '600' }}
+          >
             {isSignUp ? 'Sign In' : 'Sign Up'}
           </button>
         </p>
