@@ -13,6 +13,7 @@ import Groups from './pages/Groups'
 import GroupChat from './pages/GroupChat'
 import ResetPassword from './pages/ResetPassword'
 import InvitePage from './pages/InvitePage'
+import Messages from './pages/Messages'
 
 function ProtectedRoute({ user, children }) {
   if (!user) return <Navigate to="/login" />
@@ -50,6 +51,7 @@ export default function App() {
         <Route path="/groups/:groupId" element={<ProtectedRoute user={user}><GroupChat /></ProtectedRoute>} />
         <Route path="/invite/:inviteCode" element={<ProtectedRoute user={user}><InvitePage /></ProtectedRoute>} />
         <Route path="/reset-password" element={<ResetPassword />} />
+        <Route path="/messages" element={<ProtectedRoute user={user}><Messages /></ProtectedRoute>} />
         <Route path="*" element={<Navigate to={user ? "/" : "/login"} />} />
       </Routes>
     </BrowserRouter>
