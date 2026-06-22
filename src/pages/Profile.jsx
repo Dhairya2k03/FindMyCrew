@@ -1,31 +1,28 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabaseClient'
 
 const PLATFORMS = [
-  { id: 'steam', label: 'Steam', icon: '🖥️' },
-  { id: 'epic', label: 'Epic Games', icon: '🎮' },
-  { id: 'playstation', label: 'PlayStation', icon: '🎮' },
-  { id: 'xbox', label: 'Xbox', icon: '🟢' },
-  { id: 'nintendo', label: 'Nintendo', icon: '🔴' },
-  { id: 'mobile', label: 'Mobile', icon: '📱' },
+  { id: 'steam', label: 'Steam', icon: '🖥️', rawgId: 1 },
+  { id: 'epic', label: 'Epic Games', icon: '🎮', rawgId: 1 },
+  { id: 'playstation', label: 'PlayStation', icon: '🎮', rawgId: 187 },
+  { id: 'xbox', label: 'Xbox', icon: '🟢', rawgId: 186 },
+  { id: 'nintendo', label: 'Nintendo', icon: '🔴', rawgId: 7 },
+  { id: 'mobile', label: 'Mobile', icon: '📱', rawgId: 21 },
 ]
 
-const GAMES_BY_PLATFORM = {
-  steam: ['CS2', 'Dota 2', 'Elden Ring', 'Baldurs Gate 3', 'Rust', 'Terraria', 'Stardew Valley', 'Deep Rock Galactic'],
-  epic: ['Fortnite', 'Rocket League', 'Fall Guys', 'Borderlands 3', 'GTA V', 'Among Us', 'Splitgate'],
-  playstation: ['God of War', 'Spider-Man 2', 'The Last of Us', 'Gran Turismo 7', 'Horizon Forbidden West', 'Demon Souls', 'Ghost of Tsushima'],
-  xbox: ['Halo Infinite', 'Forza Horizon 5', 'Gears 5', 'Sea of Thieves', 'Starfield', 'Microsoft Flight Simulator'],
-  nintendo: ['Zelda Tears of the Kingdom', 'Mario Kart 8', 'Splatoon 3', 'Pokemon Scarlet', 'Super Smash Bros', 'Animal Crossing'],
-  mobile: ['PUBG Mobile', 'Call of Duty Mobile', 'Clash Royale', 'Genshin Impact', 'Mobile Legends', 'Free Fire'],
-}
+const RAWG_KEY = import.meta.env.VITE_RAWG_API_KEY
 
 export default function Profile() {
   const [user, setUser] = useState(null)
   const [username, setUsername] = useState('')
   const [selectedPlatforms, setSelectedPlatforms] = useState([])
   const [selectedGames, setSelectedGames] = useState([])
+  const [searchQuery, setSearchQuery] = useState('')
+  const [searchResults, setSearchResults] = useState([])
+  const [searching, setSearching] = useState(false)
   const navigate = useNavigate()
+  const searchTimeout = useRef(null)
 
   useEffect(() => {
     const load = async () => {
@@ -42,15 +39,11 @@ export default function Profile() {
   }, [])
 
   const togglePlatform = (id) => {
-    setSelectedPlatforms(prev => {
-      const newPlatforms = prev.includes(id) ? prev.filter(p => p !== id) : [...prev, id]
-      // Remove games from deselected platform
-      if (prev.includes(id)) {
-        const removedGames = GAMES_BY_PLATFORM[id] || []
-        setSelectedGames(g => g.filter(game => !removedGames.includes(game)))
-      }
-      return newPlatforms
-    })
+    setSelectedPlatforms(prev =>
+      prev.includes(id) ? prev.filter(p => p !== id) : [...prev, id]
+    )
+    setSearchResults([])
+    setSearchQuery('')
   }
 
   const toggleGame = (game) => {
@@ -59,16 +52,37 @@ export default function Profile() {
     )
   }
 
-  // Combine all games from all selected platforms, deduplicated
-  const availableGames = [...new Set(
-    selectedPlatforms.flatMap(p => GAMES_BY_PLATFORM[p] || [])
-  )]
+  const searchGames = async (query) => {
+    if (!query.trim() || selectedPlatforms.length === 0) {
+      setSearchResults([])
+      return
+    }
 
-  // Group games by platform for display
-  const gamesBySelectedPlatform = selectedPlatforms.map(p => ({
-    platform: PLATFORMS.find(pl => pl.id === p),
-    games: GAMES_BY_PLATFORM[p] || []
-  }))
+    setSearching(true)
+
+    const platformIds = selectedPlatforms
+      .map(p => PLATFORMS.find(pl => pl.id === p)?.rawgId)
+      .filter(Boolean)
+      .join(',')
+
+    const url = `https://api.rawg.io/api/games?key=${RAWG_KEY}&search=${encodeURIComponent(query)}&platforms=${platformIds}&page_size=8`
+
+    try {
+      const res = await fetch(url)
+      const data = await res.json()
+      setSearchResults(data.results || [])
+    } catch (e) {
+      console.error('RAWG error:', e)
+    }
+    setSearching(false)
+  }
+
+  const handleSearchChange = (e) => {
+    const query = e.target.value
+    setSearchQuery(query)
+    clearTimeout(searchTimeout.current)
+    searchTimeout.current = setTimeout(() => searchGames(query), 500)
+  }
 
   const saveProfile = async () => {
     if (!user) return alert('Not logged in')
@@ -138,44 +152,71 @@ export default function Profile() {
         ))}
       </div>
 
-      {/* Games grouped by platform */}
+      {/* Game Search */}
       {selectedPlatforms.length > 0 && (
         <>
           <label style={{ display: 'block', marginBottom: '1rem', fontWeight: '500', color: '#aaa', fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-            Select Your Games
+            Search Games
           </label>
-          {gamesBySelectedPlatform.map(({ platform, games }) => (
-            <div key={platform.id} style={{ marginBottom: '1.5rem' }}>
-              <p style={{ color: '#a78bfa', fontWeight: '600', fontSize: '0.85rem', marginBottom: '0.75rem' }}>
-                {platform.icon} {platform.label}
-              </p>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem' }}>
-                {games.map(game => (
-                  <button
-                    key={game}
-                    onClick={() => toggleGame(game)}
-                    style={{
-                      padding: '0.6rem 1.25rem',
-                      background: selectedGames.includes(game) ? 'rgba(108,99,255,0.2)' : 'rgba(255,255,255,0.05)',
-                      color: selectedGames.includes(game) ? '#a78bfa' : '#888',
-                      border: selectedGames.includes(game) ? '1px solid rgba(108,99,255,0.5)' : '1px solid rgba(255,255,255,0.1)',
-                      borderRadius: '100px',
-                      cursor: 'pointer',
-                      fontSize: '0.9rem',
-                      fontWeight: '500',
-                      fontFamily: 'Inter, sans-serif'
-                    }}
-                  >
-                    {selectedGames.includes(game) ? '✓ ' : ''}{game}
-                  </button>
-                ))}
+          <div style={{ position: 'relative', marginBottom: '1.5rem' }}>
+            <input
+              type="text"
+              placeholder={`Search games on ${selectedPlatforms.map(p => PLATFORMS.find(pl => pl.id === p)?.label).join(', ')}...`}
+              value={searchQuery}
+              onChange={handleSearchChange}
+              style={{ padding: '0.85rem 1rem', width: '100%', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.1)', fontSize: '1rem', background: 'rgba(255,255,255,0.05)', color: 'white', fontFamily: 'Inter, sans-serif', outline: 'none' }}
+            />
+            {searching && (
+              <p style={{ color: '#888', fontSize: '0.85rem', marginTop: '0.5rem' }}>Searching...</p>
+            )}
+
+            {/* Search Results */}
+            {searchResults.length > 0 && (
+              <div style={{ marginTop: '0.75rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                {searchResults.map(game => {
+                  const isSelected = selectedGames.includes(game.name)
+                  return (
+                    <div
+                      key={game.id}
+                      onClick={() => toggleGame(game.name)}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '1rem',
+                        padding: '0.75rem 1rem',
+                        background: isSelected ? 'rgba(108,99,255,0.15)' : 'rgba(255,255,255,0.03)',
+                        border: isSelected ? '1px solid rgba(108,99,255,0.4)' : '1px solid rgba(255,255,255,0.08)',
+                        borderRadius: '10px',
+                        cursor: 'pointer',
+                        transition: 'all 0.2s'
+                      }}
+                    >
+                      {game.background_image && (
+                        <img
+                          src={game.background_image}
+                          alt={game.name}
+                          style={{ width: '48px', height: '48px', borderRadius: '8px', objectFit: 'cover', flexShrink: 0 }}
+                        />
+                      )}
+                      <div style={{ flex: 1 }}>
+                        <p style={{ fontWeight: '600', fontSize: '0.95rem', marginBottom: '0.2rem' }}>{game.name}</p>
+                        <p style={{ color: '#888', fontSize: '0.8rem' }}>
+                          {game.platforms?.slice(0, 3).map(p => p.platform.name).join(', ')}
+                        </p>
+                      </div>
+                      <span style={{ color: isSelected ? '#a78bfa' : '#555', fontWeight: '600', fontSize: '0.85rem' }}>
+                        {isSelected ? '✓ Added' : '+ Add'}
+                      </span>
+                    </div>
+                  )
+                })}
               </div>
-            </div>
-          ))}
+            )}
+          </div>
         </>
       )}
 
-      {/* Selected games summary */}
+      {/* Selected Games */}
       {selectedGames.length > 0 && (
         <div style={{ marginBottom: '2rem', padding: '1rem 1.5rem', background: 'rgba(108,99,255,0.08)', borderRadius: '12px', border: '1px solid rgba(108,99,255,0.2)' }}>
           <p style={{ color: '#a78bfa', fontWeight: '600', marginBottom: '0.75rem', fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
