@@ -22,14 +22,7 @@ export default function Chat() {
         .or(`and(sender_id.eq.${user.id},receiver_id.eq.${userId}),and(sender_id.eq.${userId},receiver_id.eq.${user.id})`)
         .order('created_at', { ascending: true })
       setMessages(msgs || [])
-      // Mark messages as read
-await supabase.from('messages')
-  .update({ read_at: new Date().toISOString() })
-  .eq('receiver_id', user.id)
-  .eq('sender_id', userId)
-  .is('read_at', null)
 
-      // Mark messages as read
       await supabase.from('messages')
         .update({ read_at: new Date().toISOString() })
         .eq('receiver_id', user.id)
@@ -42,7 +35,7 @@ await supabase.from('messages')
   useEffect(() => {
     if (!currentUser) return
     const channel = supabase.channel('messages')
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, payload => {
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, async payload => {
         const msg = payload.new
         if (
           (msg.sender_id === currentUser?.id && msg.receiver_id === userId) ||
@@ -53,6 +46,11 @@ await supabase.from('messages')
             if (exists) return prev
             return [...prev, msg]
           })
+          if (msg.sender_id === userId) {
+            await supabase.from('messages')
+              .update({ read_at: new Date().toISOString() })
+              .eq('id', msg.id)
+          }
         }
       })
       .subscribe()
@@ -67,7 +65,6 @@ await supabase.from('messages')
     if (!newMessage.trim()) return
     const content = newMessage.trim()
     setNewMessage('')
-
     const tempMsg = {
       id: `temp-${Date.now()}`,
       sender_id: currentUser.id,
@@ -76,16 +73,12 @@ await supabase.from('messages')
       created_at: new Date()
     }
     setMessages(prev => [...prev, tempMsg])
-
     const { data } = await supabase.from('messages').insert({
       sender_id: currentUser.id,
       receiver_id: userId,
       content
     }).select().single()
-
-    if (data) {
-      setMessages(prev => prev.map(m => m.id === tempMsg.id ? data : m))
-    }
+    if (data) setMessages(prev => prev.map(m => m.id === tempMsg.id ? data : m))
   }
 
   const sendImage = async (e) => {
@@ -93,24 +86,15 @@ await supabase.from('messages')
     if (!file) return
     if (!file.type.startsWith('image/')) return alert('Please select an image file')
     if (file.size > 5 * 1024 * 1024) return alert('Image must be under 5MB')
-
     setUploading(true)
-
     const fileName = `${currentUser.id}-${Date.now()}-${file.name}`
-    const { error: uploadError } = await supabase.storage
-      .from('chat-images')
-      .upload(fileName, file)
-
+    const { error: uploadError } = await supabase.storage.from('chat-images').upload(fileName, file)
     if (uploadError) {
       alert('Failed to upload image: ' + uploadError.message)
       setUploading(false)
       return
     }
-
-    const { data: { publicUrl } } = supabase.storage
-      .from('chat-images')
-      .getPublicUrl(fileName)
-
+    const { data: { publicUrl } } = supabase.storage.from('chat-images').getPublicUrl(fileName)
     const tempMsg = {
       id: `temp-${Date.now()}`,
       sender_id: currentUser.id,
@@ -119,17 +103,12 @@ await supabase.from('messages')
       created_at: new Date()
     }
     setMessages(prev => [...prev, tempMsg])
-
     const { data } = await supabase.from('messages').insert({
       sender_id: currentUser.id,
       receiver_id: userId,
       content: `[image]${publicUrl}`
     }).select().single()
-
-    if (data) {
-      setMessages(prev => prev.map(m => m.id === tempMsg.id ? data : m))
-    }
-
+    if (data) setMessages(prev => prev.map(m => m.id === tempMsg.id ? data : m))
     setUploading(false)
     fileInputRef.current.value = ''
   }
@@ -155,8 +134,6 @@ await supabase.from('messages')
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 64px)', maxWidth: '700px', margin: '0 auto', padding: '1.5rem' }}>
-
-      {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '1.5rem', padding: '1rem 1.5rem', background: 'rgba(255,255,255,0.03)', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.08)' }}>
         <div style={{ width: '40px', height: '40px', borderRadius: '50%', background: color, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: '700' }}>
           {name[0]?.toUpperCase()}
@@ -167,7 +144,6 @@ await supabase.from('messages')
         </div>
       </div>
 
-      {/* Messages */}
       <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '0.75rem', marginBottom: '1rem', padding: '0.5rem' }}>
         {messages.length === 0 && (
           <div style={{ textAlign: 'center', color: '#888', marginTop: '3rem' }}>
@@ -178,11 +154,7 @@ await supabase.from('messages')
         {messages.map(msg => (
           <div key={msg.id} style={{
             alignSelf: msg.sender_id === currentUser?.id ? 'flex-end' : 'flex-start',
-            background: msg.content?.startsWith('[image]')
-              ? 'transparent'
-              : msg.sender_id === currentUser?.id
-              ? 'linear-gradient(135deg, #6c63ff, #a78bfa)'
-              : 'rgba(255,255,255,0.08)',
+            background: msg.content?.startsWith('[image]') ? 'transparent' : msg.sender_id === currentUser?.id ? 'linear-gradient(135deg, #6c63ff, #a78bfa)' : 'rgba(255,255,255,0.08)',
             color: 'white',
             padding: msg.content?.startsWith('[image]') ? '0' : '0.65rem 1rem',
             borderRadius: msg.sender_id === currentUser?.id ? '18px 18px 4px 18px' : '18px 18px 18px 4px',
@@ -196,29 +168,9 @@ await supabase.from('messages')
         <div ref={bottomRef} />
       </div>
 
-      {/* Input */}
       <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
-        <input
-          type="file"
-          accept="image/*"
-          ref={fileInputRef}
-          onChange={sendImage}
-          style={{ display: 'none' }}
-        />
-        <button
-          onClick={() => fileInputRef.current.click()}
-          disabled={uploading}
-          style={{
-            padding: '0.85rem',
-            background: 'rgba(255,255,255,0.05)',
-            color: uploading ? '#555' : '#a78bfa',
-            border: '1px solid rgba(255,255,255,0.1)',
-            borderRadius: '10px',
-            cursor: uploading ? 'default' : 'pointer',
-            fontSize: '1.2rem',
-            lineHeight: 1
-          }}
-        >
+        <input type="file" accept="image/*" ref={fileInputRef} onChange={sendImage} style={{ display: 'none' }} />
+        <button onClick={() => fileInputRef.current.click()} disabled={uploading} style={{ padding: '0.85rem', background: 'rgba(255,255,255,0.05)', color: uploading ? '#555' : '#a78bfa', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '10px', cursor: uploading ? 'default' : 'pointer', fontSize: '1.2rem', lineHeight: 1 }}>
           {uploading ? '⏳' : '📷'}
         </button>
         <input
@@ -229,10 +181,7 @@ await supabase.from('messages')
           onKeyDown={e => e.key === 'Enter' && sendMessage()}
           style={{ flex: 1, padding: '0.85rem 1rem', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.05)', color: 'white', fontFamily: 'Inter, sans-serif', fontSize: '0.95rem', outline: 'none' }}
         />
-        <button
-          onClick={sendMessage}
-          style={{ padding: '0.85rem 1.5rem', background: 'linear-gradient(135deg, #6c63ff, #a78bfa)', color: 'white', border: 'none', borderRadius: '10px', cursor: 'pointer', fontFamily: 'Inter, sans-serif', fontWeight: '600' }}
-        >
+        <button onClick={sendMessage} style={{ padding: '0.85rem 1.5rem', background: 'linear-gradient(135deg, #6c63ff, #a78bfa)', color: 'white', border: 'none', borderRadius: '10px', cursor: 'pointer', fontFamily: 'Inter, sans-serif', fontWeight: '600' }}>
           Send
         </button>
       </div>
