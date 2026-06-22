@@ -5,6 +5,7 @@ export default function Login() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [isSignUp, setIsSignUp] = useState(false)
+  const [isForgot, setIsForgot] = useState(false)
   const [message, setMessage] = useState('')
 
   const handleSubmit = async () => {
@@ -31,6 +32,15 @@ export default function Login() {
     }
   }
 
+  const handleForgotPassword = async () => {
+    if (!email) return alert('Please enter your email address first')
+    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: `${window.location.origin}/reset-password`
+    })
+    if (error) alert(error.message)
+    else setMessage('Password reset link sent! Check your email.')
+  }
+
   const inputStyle = {
     padding: '0.85rem 1rem',
     borderRadius: '10px',
@@ -43,23 +53,30 @@ export default function Login() {
     width: '100%'
   }
 
+  if (isForgot) {
+    return (
+      <div style={{ minHeight: 'calc(100vh - 64px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '2rem', background: 'radial-gradient(ellipse at center, rgba(108, 99, 255, 0.1) 0%, transparent 70%)' }}>
+        <div style={{ width: '100%', maxWidth: '420px', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '20px', padding: '2.5rem' }}>
+          <h2 style={{ marginBottom: '0.5rem', fontSize: '1.75rem', fontWeight: '700' }}>Reset Password</h2>
+          <p style={{ color: '#888', marginBottom: '2rem' }}>Enter your email and we'll send you a reset link</p>
+          {message && <p style={{ color: '#4caf50', marginBottom: '1rem', fontSize: '0.9rem' }}>{message}</p>}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+            <input type="email" placeholder="Email address" value={email} onChange={e => setEmail(e.target.value)} style={inputStyle} />
+            <button onClick={handleForgotPassword} style={{ padding: '0.85rem', background: 'linear-gradient(135deg, #6c63ff, #a78bfa)', color: 'white', border: 'none', borderRadius: '10px', fontSize: '1rem', fontWeight: '600', cursor: 'pointer', fontFamily: 'Inter, sans-serif' }}>
+              Send Reset Link
+            </button>
+            <button onClick={() => { setIsForgot(false); setMessage('') }} style={{ padding: '0.85rem', background: 'transparent', color: '#888', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '10px', fontSize: '1rem', cursor: 'pointer', fontFamily: 'Inter, sans-serif' }}>
+              Back to Login
+            </button>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   return (
-    <div style={{
-      minHeight: 'calc(100vh - 64px)',
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'center',
-      padding: '2rem',
-      background: 'radial-gradient(ellipse at center, rgba(108, 99, 255, 0.1) 0%, transparent 70%)'
-    }}>
-      <div style={{
-        width: '100%',
-        maxWidth: '420px',
-        background: 'rgba(255,255,255,0.03)',
-        border: '1px solid rgba(255,255,255,0.08)',
-        borderRadius: '20px',
-        padding: '2.5rem'
-      }}>
+    <div style={{ minHeight: 'calc(100vh - 64px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '2rem', background: 'radial-gradient(ellipse at center, rgba(108, 99, 255, 0.1) 0%, transparent 70%)' }}>
+      <div style={{ width: '100%', maxWidth: '420px', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '20px', padding: '2.5rem' }}>
         <h2 style={{ marginBottom: '0.5rem', fontSize: '1.75rem', fontWeight: '700' }}>
           {isSignUp ? 'Create Account' : 'Welcome Back'}
         </h2>
@@ -70,46 +87,23 @@ export default function Login() {
         {message && <p style={{ color: '#4caf50', marginBottom: '1rem', fontSize: '0.9rem' }}>{message}</p>}
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-          <input
-            type="email"
-            placeholder="Email address"
-            value={email}
-            onChange={e => setEmail(e.target.value)}
-            style={inputStyle}
-          />
-          <input
-            type="password"
-            placeholder="Password"
-            value={password}
-            onChange={e => setPassword(e.target.value)}
-            onKeyDown={e => e.key === 'Enter' && handleSubmit()}
-            style={inputStyle}
-          />
-          <button
-            onClick={handleSubmit}
-            style={{
-              padding: '0.85rem',
-              background: 'linear-gradient(135deg, #6c63ff, #a78bfa)',
-              color: 'white',
-              border: 'none',
-              borderRadius: '10px',
-              fontSize: '1rem',
-              fontWeight: '600',
-              cursor: 'pointer',
-              fontFamily: 'Inter, sans-serif',
-              marginTop: '0.5rem'
-            }}
-          >
+          <input type="email" placeholder="Email address" value={email} onChange={e => setEmail(e.target.value)} style={inputStyle} />
+          <input type="password" placeholder="Password" value={password} onChange={e => setPassword(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleSubmit()} style={inputStyle} />
+
+          {!isSignUp && (
+            <button onClick={() => { setIsForgot(true); setMessage('') }} style={{ background: 'none', border: 'none', color: '#a78bfa', cursor: 'pointer', fontFamily: 'Inter, sans-serif', fontSize: '0.85rem', textAlign: 'right', padding: 0 }}>
+              Forgot password?
+            </button>
+          )}
+
+          <button onClick={handleSubmit} style={{ padding: '0.85rem', background: 'linear-gradient(135deg, #6c63ff, #a78bfa)', color: 'white', border: 'none', borderRadius: '10px', fontSize: '1rem', fontWeight: '600', cursor: 'pointer', fontFamily: 'Inter, sans-serif', marginTop: '0.5rem' }}>
             {isSignUp ? 'Create Account' : 'Sign In'}
           </button>
         </div>
 
         <p style={{ textAlign: 'center', marginTop: '1.5rem', color: '#888', fontSize: '0.9rem' }}>
           {isSignUp ? 'Already have an account?' : "Don't have an account?"}
-          <button
-            onClick={() => { setIsSignUp(!isSignUp); setMessage('') }}
-            style={{ background: 'none', border: 'none', color: '#a78bfa', cursor: 'pointer', marginLeft: '0.5rem', fontFamily: 'Inter, sans-serif', fontSize: '0.9rem', fontWeight: '600' }}
-          >
+          <button onClick={() => { setIsSignUp(!isSignUp); setMessage('') }} style={{ background: 'none', border: 'none', color: '#a78bfa', cursor: 'pointer', marginLeft: '0.5rem', fontFamily: 'Inter, sans-serif', fontSize: '0.9rem', fontWeight: '600' }}>
             {isSignUp ? 'Sign In' : 'Sign Up'}
           </button>
         </p>

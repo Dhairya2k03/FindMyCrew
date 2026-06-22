@@ -11,6 +11,8 @@ import Chat from './pages/Chat'
 import GameLevels from './pages/GameLevels'
 import Groups from './pages/Groups'
 import GroupChat from './pages/GroupChat'
+import ResetPassword from './pages/ResetPassword'
+
 
 function ProtectedRoute({ user, children }) {
   if (!user) return <Navigate to="/login" />
@@ -47,6 +49,7 @@ export default function App() {
         <Route path="/groups" element={<ProtectedRoute user={user}><Groups /></ProtectedRoute>} />
         <Route path="/groups/:groupId" element={<ProtectedRoute user={user}><GroupChat /></ProtectedRoute>} />
         <Route path="*" element={<Navigate to={user ? "/" : "/login"} />} />
+        <Route path="/reset-password" element={<ResetPassword />} />
       </Routes>
     </BrowserRouter>
   )
