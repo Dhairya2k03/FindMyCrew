@@ -9,8 +9,10 @@ export default function Chat() {
   const [currentUser, setCurrentUser] = useState(null)
   const [otherUser, setOtherUser] = useState(null)
   const [uploading, setUploading] = useState(false)
+  const [isOtherOnline, setIsOtherOnline] = useState(false)
   const bottomRef = useRef(null)
   const fileInputRef = useRef(null)
+  const presenceChannelRef = useRef(null)
 
   useEffect(() => {
     const load = async () => {
@@ -28,8 +30,38 @@ export default function Chat() {
         .eq('receiver_id', user.id)
         .eq('sender_id', userId)
         .is('read_at', null)
+
+      // Setup presence
+      const channel = supabase.channel('online-users', {
+        config: { presence: { key: user.id } }
+      })
+
+      channel
+        .on('presence', { event: 'sync' }, () => {
+          const state = channel.presenceState()
+          setIsOtherOnline(!!state[userId])
+        })
+        .on('presence', { event: 'join' }, ({ key }) => {
+          if (key === userId) setIsOtherOnline(true)
+        })
+        .on('presence', { event: 'leave' }, ({ key }) => {
+          if (key === userId) setIsOtherOnline(false)
+        })
+        .subscribe(async (status) => {
+          if (status === 'SUBSCRIBED') {
+            await channel.track({ online_at: new Date().toISOString() })
+          }
+        })
+
+      presenceChannelRef.current = channel
     }
     load()
+
+    return () => {
+      if (presenceChannelRef.current) {
+        supabase.removeChannel(presenceChannelRef.current)
+      }
+    }
   }, [userId])
 
   useEffect(() => {
@@ -140,7 +172,9 @@ export default function Chat() {
         </div>
         <div>
           <p style={{ fontWeight: '600' }}>{name}</p>
-          <p style={{ fontSize: '0.8rem', color: '#4caf50' }}>● Online</p>
+          <p style={{ fontSize: '0.8rem', color: isOtherOnline ? '#4caf50' : '#888' }}>
+            {isOtherOnline ? '● Online' : '○ Offline'}
+          </p>
         </div>
       </div>
 
