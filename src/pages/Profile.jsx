@@ -45,26 +45,42 @@ export default function Profile() {
   const uploadAvatar = async (e) => {
     const file = e.target.files[0]
     if (!file) return
-    if (!file.type.startsWith('image/')) return alert('Please select an image file')
-    if (file.size > 2 * 1024 * 1024) return alert('Image must be under 2MB')
+    if (file.size > 10 * 1024 * 1024) return alert('Image must be under 10MB')
 
     setUploadingAvatar(true)
-    const fileName = `${user.id}/avatar-${Date.now()}.${file.name.split('.').pop()}`
 
-    const { error: uploadError } = await supabase.storage
-      .from('avatars')
-      .upload(fileName, file, { upsert: true })
+    try {
+      // Convert any image format to PNG using canvas
+      const bitmap = await createImageBitmap(file)
+      const canvas = document.createElement('canvas')
+      // Resize to max 400x400 to save space
+      const maxSize = 400
+      const scale = Math.min(maxSize / bitmap.width, maxSize / bitmap.height, 1)
+      canvas.width = Math.round(bitmap.width * scale)
+      canvas.height = Math.round(bitmap.height * scale)
+      const ctx = canvas.getContext('2d')
+      ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height)
 
-    if (uploadError) {
-      alert('Failed to upload: ' + uploadError.message)
-      setUploadingAvatar(false)
-      return
+      const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png'))
+      const fileName = `${user.id}/avatar-${Date.now()}.png`
+
+      const { error: uploadError } = await supabase.storage
+        .from('avatars')
+        .upload(fileName, blob, { upsert: true, contentType: 'image/png' })
+
+      if (uploadError) {
+        alert('Failed to upload: ' + uploadError.message)
+        setUploadingAvatar(false)
+        return
+      }
+
+      const { data: { publicUrl } } = supabase.storage.from('avatars').getPublicUrl(fileName)
+      await supabase.from('profiles').update({ avatar_url: publicUrl }).eq('id', user.id)
+      setAvatarUrl(publicUrl)
+    } catch (err) {
+      alert('Failed to process image: ' + err.message)
     }
 
-    const { data: { publicUrl } } = supabase.storage.from('avatars').getPublicUrl(fileName)
-
-    await supabase.from('profiles').update({ avatar_url: publicUrl }).eq('id', user.id)
-    setAvatarUrl(publicUrl)
     setUploadingAvatar(false)
   }
 
