@@ -15,6 +15,7 @@ import ResetPassword from './pages/ResetPassword'
 import InvitePage from './pages/InvitePage'
 import UserProfile from './pages/UserProfile'
 import Notifications from './pages/Notifications'
+import Search from './pages/Search'
 import Messages from './pages/Messages'
 
 function ProtectedRoute({ user, children }) {
@@ -56,6 +57,7 @@ export default function App() {
         <Route path="/messages" element={<ProtectedRoute user={user}><Messages /></ProtectedRoute>} />
         <Route path="/user/:userId" element={<ProtectedRoute user={user}><UserProfile /></ProtectedRoute>} />
         <Route path="/notifications" element={<ProtectedRoute user={user}><Notifications /></ProtectedRoute>} />
+        <Route path="/search" element={<ProtectedRoute user={user}><Search /></ProtectedRoute>} />
         <Route path="*" element={<Navigate to={user ? "/" : "/login"} />} />
       </Routes>
     </BrowserRouter>

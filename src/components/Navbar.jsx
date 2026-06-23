@@ -49,6 +49,7 @@ export default function Navbar() {
   const navItems = [
     { path: '/', label: 'Home' },
     { path: '/browse', label: 'Browse' },
+    { path: '/search', label: '🔍' },
     { path: '/messages', label: 'Messages', badge: unreadMessages },
     { path: '/groups', label: 'Groups' },
     { path: '/connections', label: 'Connections' },
@@ -95,7 +96,7 @@ export default function Navbar() {
         <div style={{ position: 'fixed', top: '64px', left: 0, right: 0, bottom: 0, background: 'rgba(15,15,26,0.98)', zIndex: 99, display: 'flex', flexDirection: 'column', padding: '1.5rem', gap: '0.5rem', overflowY: 'auto' }}>
           {navItems.map(({ path, label, badge }) => (
             <Link key={path} to={path} style={{ padding: '1rem 1.25rem', borderRadius: '12px', color: isActive(path) ? '#a78bfa' : 'white', fontWeight: isActive(path) ? '700' : '500', background: isActive(path) ? 'rgba(108,99,255,0.15)' : 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)', fontSize: '1.05rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              {label === '🔔' ? '🔔 Notifications' : label}
+              {label === '🔔' ? '🔔 Notifications' : label === '🔍' ? '🔍 Search' : label}
               {badge > 0 && (
                 <span style={{ background: '#6c63ff', color: 'white', borderRadius: '100px', fontSize: '0.75rem', fontWeight: '700', padding: '2px 8px' }}>
                   {badge > 9 ? '9+' : badge}
