@@ -27,16 +27,24 @@ export default function Chat() {
   const fileInputRef = useRef(null)
   const presenceChannelRef = useRef(null)
   const typingTimeoutRef = useRef(null)
+  const currentUserRef = useRef(null)
+  const userIdRef = useRef(userId)
+
+  useEffect(() => {
+    userIdRef.current = userId
+  }, [userId])
 
   useEffect(() => {
     const load = async () => {
       const { data: { user } } = await supabase.auth.getUser()
       setCurrentUser(user)
+      currentUserRef.current = user
 
       supabase.from('profiles').update({ last_seen: new Date().toISOString() }).eq('id', user.id).then(() => {})
 
       const { data: profile } = await supabase.from('profiles').select('*').eq('id', userId).single()
       setOtherUser(profile)
+
       const { data: msgs } = await supabase.from('messages').select('*')
         .or(`and(sender_id.eq.${user.id},receiver_id.eq.${userId}),and(sender_id.eq.${userId},receiver_id.eq.${user.id})`)
         .order('created_at', { ascending: true })
@@ -49,32 +57,48 @@ export default function Chat() {
         .is('read_at', null)
         .then(() => {})
 
-      const channel = supabase.channel(`chat-presence-${[user.id, userId].sort().join('-')}`, {
+      // Use sorted IDs so both users get same channel name
+      const channelName = `chat-presence-${[user.id, userId].sort().join('-')}`
+      const channel = supabase.channel(channelName, {
         config: { presence: { key: user.id } }
       })
 
+      const updatePresenceState = (state) => {
+        const otherId = userIdRef.current
+        const otherPresence = state[otherId]
+        if (otherPresence && otherPresence.length > 0) {
+          setIsOtherOnline(true)
+          setIsOtherTyping(otherPresence[0]?.typing === true)
+        } else {
+          setIsOtherOnline(false)
+          setIsOtherTyping(false)
+        }
+      }
+
       channel
         .on('presence', { event: 'sync' }, () => {
-          const state = channel.presenceState()
-          setIsOtherOnline(!!state[userId])
-          const otherState = state[userId]?.[0]
-          setIsOtherTyping(otherState?.typing === true)
+          updatePresenceState(channel.presenceState())
         })
-        .on('presence', { event: 'join' }, ({ key }) => {
-          if (key === userId) setIsOtherOnline(true)
+        .on('presence', { event: 'join' }, ({ key, newPresences }) => {
+          if (key === userIdRef.current) {
+            setIsOtherOnline(true)
+            setIsOtherTyping(newPresences?.[0]?.typing === true)
+          }
         })
         .on('presence', { event: 'leave' }, ({ key }) => {
-          if (key === userId) {
+          if (key === userIdRef.current) {
             setIsOtherOnline(false)
             setIsOtherTyping(false)
-            supabase.from('profiles').select('last_seen').eq('id', userId).single().then(({ data }) => {
+            supabase.from('profiles').select('last_seen').eq('id', userIdRef.current).single().then(({ data }) => {
               if (data) setOtherUser(prev => ({ ...prev, last_seen: data.last_seen }))
             })
           }
         })
         .subscribe(async (status) => {
           if (status === 'SUBSCRIBED') {
-            channel.track({ online_at: new Date().toISOString(), typing: false })
+            await channel.track({ online_at: new Date().toISOString(), typing: false })
+            // Check state immediately after subscribing
+            updatePresenceState(channel.presenceState())
           }
         })
 
@@ -270,10 +294,7 @@ export default function Chat() {
                 {renderMessage(msg)}
               </div>
               {isMine && isHovered && !isTemp && (
-                <button
-                  onClick={() => deleteMessage(msg.id)}
-                  style={{ background: 'rgba(239,68,68,0.15)', border: '1px solid rgba(239,68,68,0.2)', color: '#ef4444', borderRadius: '6px', padding: '0.25rem 0.5rem', cursor: 'pointer', fontSize: '0.75rem', flexShrink: 0 }}
-                >
+                <button onClick={() => deleteMessage(msg.id)} style={{ background: 'rgba(239,68,68,0.15)', border: '1px solid rgba(239,68,68,0.2)', color: '#ef4444', borderRadius: '6px', padding: '0.25rem 0.5rem', cursor: 'pointer', fontSize: '0.75rem', flexShrink: 0 }}>
                   🗑️
                 </button>
               )}
