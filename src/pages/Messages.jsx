@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabaseClient'
+import { SkeletonConversation } from '../components/Skeleton'
 
 export default function Messages() {
   const [conversations, setConversations] = useState([])
@@ -73,18 +74,16 @@ export default function Messages() {
     return msg.content?.length > 40 ? msg.content.substring(0, 40) + '...' : msg.content
   }
 
-  if (loading) return (
-    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 'calc(100vh - 64px)' }}>
-      <p style={{ color: '#888' }}>Loading messages...</p>
-    </div>
-  )
-
   return (
     <div style={{ maxWidth: '650px', margin: '0 auto', padding: '2rem' }}>
       <h2 style={{ fontSize: '1.75rem', fontWeight: '700', marginBottom: '0.5rem' }}>Messages</h2>
       <p style={{ color: '#888', marginBottom: '2rem' }}>Your conversations</p>
 
-      {conversations.length === 0 ? (
+      {loading ? (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+          {[1,2,3,4,5].map(i => <SkeletonConversation key={i} />)}
+        </div>
+      ) : conversations.length === 0 ? (
         <div style={{ textAlign: 'center', padding: '4rem 2rem', background: 'rgba(255,255,255,0.02)', borderRadius: '16px', border: '1px solid rgba(255,255,255,0.06)' }}>
           <p style={{ fontSize: '2rem', marginBottom: '1rem' }}>💬</p>
           <p style={{ color: '#888' }}>No conversations yet. Connect with someone to start chatting!</p>

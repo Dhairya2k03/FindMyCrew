@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabaseClient'
 import HobbyCard from '../components/HobbyCard'
+import { SkeletonCard } from '../components/Skeleton'
 
 const PLATFORMS = ['steam', 'epic', 'playstation', 'xbox', 'nintendo', 'mobile']
 const PLATFORM_ICONS = { steam: '🖥️', epic: '🎮', playstation: '🎮', xbox: '🟢', nintendo: '🔴', mobile: '📱' }
@@ -46,7 +47,6 @@ export default function Browse() {
         })
         setProfiles(sorted)
 
-        // Collect all unique games
         const games = new Set()
         others?.forEach(p => p.hobbies?.forEach(h => games.add(h)))
         setAllGames([...games].sort())
@@ -77,12 +77,6 @@ export default function Browse() {
     setFilterGame('')
   }
 
-  if (loading) return (
-    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 'calc(100vh - 64px)' }}>
-      <p style={{ color: '#888' }}>Finding players...</p>
-    </div>
-  )
-
   return (
     <div style={{ padding: '1.5rem', maxWidth: '1100px', margin: '0 auto' }}>
       <div style={{ marginBottom: '1.5rem' }}>
@@ -90,7 +84,6 @@ export default function Browse() {
         <p style={{ color: '#888' }}>Players sorted by shared games</p>
       </div>
 
-      {/* Search + Filter toggle */}
       <div style={{ display: 'flex', gap: '0.75rem', marginBottom: '1rem', flexWrap: 'wrap' }}>
         <input
           type="text"
@@ -112,45 +105,28 @@ export default function Browse() {
         )}
       </div>
 
-      {/* Filter panel */}
       {showFilters && (
         <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '16px', padding: '1.25rem', marginBottom: '1.5rem' }}>
-
-          {/* Platform filter */}
           <p style={{ color: '#aaa', fontSize: '0.8rem', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.75rem' }}>Platform</p>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '1.25rem' }}>
             {PLATFORMS.map(p => (
-              <button
-                key={p}
-                onClick={() => setFilterPlatform(filterPlatform === p ? null : p)}
-                style={{ padding: '0.4rem 0.9rem', background: filterPlatform === p ? 'rgba(108,99,255,0.2)' : 'rgba(255,255,255,0.04)', color: filterPlatform === p ? '#a78bfa' : '#888', border: filterPlatform === p ? '1px solid rgba(108,99,255,0.4)' : '1px solid rgba(255,255,255,0.08)', borderRadius: '100px', cursor: 'pointer', fontSize: '0.85rem', fontFamily: 'Inter, sans-serif' }}
-              >
+              <button key={p} onClick={() => setFilterPlatform(filterPlatform === p ? null : p)} style={{ padding: '0.4rem 0.9rem', background: filterPlatform === p ? 'rgba(108,99,255,0.2)' : 'rgba(255,255,255,0.04)', color: filterPlatform === p ? '#a78bfa' : '#888', border: filterPlatform === p ? '1px solid rgba(108,99,255,0.4)' : '1px solid rgba(255,255,255,0.08)', borderRadius: '100px', cursor: 'pointer', fontSize: '0.85rem', fontFamily: 'Inter, sans-serif' }}>
                 {PLATFORM_ICONS[p]} {p.charAt(0).toUpperCase() + p.slice(1)}
               </button>
             ))}
           </div>
 
-          {/* Skill level filter */}
           <p style={{ color: '#aaa', fontSize: '0.8rem', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.75rem' }}>Skill Level</p>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '1.25rem' }}>
             {LEVELS.map(l => (
-              <button
-                key={l}
-                onClick={() => setFilterLevel(filterLevel === l ? null : l)}
-                style={{ padding: '0.4rem 0.9rem', background: filterLevel === l ? 'rgba(108,99,255,0.2)' : 'rgba(255,255,255,0.04)', color: filterLevel === l ? '#a78bfa' : '#888', border: filterLevel === l ? '1px solid rgba(108,99,255,0.4)' : '1px solid rgba(255,255,255,0.08)', borderRadius: '100px', cursor: 'pointer', fontSize: '0.85rem', fontFamily: 'Inter, sans-serif' }}
-              >
+              <button key={l} onClick={() => setFilterLevel(filterLevel === l ? null : l)} style={{ padding: '0.4rem 0.9rem', background: filterLevel === l ? 'rgba(108,99,255,0.2)' : 'rgba(255,255,255,0.04)', color: filterLevel === l ? '#a78bfa' : '#888', border: filterLevel === l ? '1px solid rgba(108,99,255,0.4)' : '1px solid rgba(255,255,255,0.08)', borderRadius: '100px', cursor: 'pointer', fontSize: '0.85rem', fontFamily: 'Inter, sans-serif' }}>
                 {LEVEL_ICONS[l]} {l.charAt(0).toUpperCase() + l.slice(1)}
               </button>
             ))}
           </div>
 
-          {/* Game filter */}
           <p style={{ color: '#aaa', fontSize: '0.8rem', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.75rem' }}>Game</p>
-          <select
-            value={filterGame}
-            onChange={e => setFilterGame(e.target.value)}
-            style={{ padding: '0.6rem 1rem', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.1)', background: '#1a1a2e', color: filterGame ? 'white' : '#888', fontFamily: 'Inter, sans-serif', fontSize: '0.9rem', outline: 'none', width: '100%', maxWidth: '300px' }}
-          >
+          <select value={filterGame} onChange={e => setFilterGame(e.target.value)} style={{ padding: '0.6rem 1rem', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.1)', background: '#1a1a2e', color: filterGame ? 'white' : '#888', fontFamily: 'Inter, sans-serif', fontSize: '0.9rem', outline: 'none', width: '100%', maxWidth: '300px' }}>
             <option value="">All games</option>
             {allGames.map(g => <option key={g} value={g}>{g}</option>)}
           </select>
@@ -159,11 +135,13 @@ export default function Browse() {
 
       {error && <p style={{ color: '#f44336' }}>Error: {error}</p>}
 
-      <p style={{ color: '#666', fontSize: '0.85rem', marginBottom: '1rem' }}>
-        {filtered.length} player{filtered.length !== 1 ? 's' : ''} found
-      </p>
+      {!loading && <p style={{ color: '#666', fontSize: '0.85rem', marginBottom: '1rem' }}>{filtered.length} player{filtered.length !== 1 ? 's' : ''} found</p>}
 
-      {filtered.length === 0 ? (
+      {loading ? (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '1rem' }}>
+          {[1,2,3,4,5,6].map(i => <SkeletonCard key={i} />)}
+        </div>
+      ) : filtered.length === 0 ? (
         <div style={{ textAlign: 'center', padding: '3rem', color: '#888' }}>
           <p style={{ fontSize: '2rem', marginBottom: '0.5rem' }}>🔍</p>
           <p>No players match your filters.</p>
@@ -174,12 +152,7 @@ export default function Browse() {
       ) : (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '1rem' }}>
           {filtered.map(p => (
-            <HobbyCard
-              key={p.id}
-              profile={p}
-              currentUserId={currentUserId}
-              connectionStatus={connectionMap[p.id] || null}
-            />
+            <HobbyCard key={p.id} profile={p} currentUserId={currentUserId} connectionStatus={connectionMap[p.id] || null} />
           ))}
         </div>
       )}

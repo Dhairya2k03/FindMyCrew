@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
+import { SkeletonProfile } from '../components/Skeleton'
 import { supabase } from '../lib/supabaseClient'
 
 const LEVEL_ICONS = { beginner: '🌱', intermediate: '⚡', pro: '🔥' }
