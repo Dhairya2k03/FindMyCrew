@@ -10,9 +10,11 @@ export default function Chat() {
   const [otherUser, setOtherUser] = useState(null)
   const [uploading, setUploading] = useState(false)
   const [isOtherOnline, setIsOtherOnline] = useState(false)
+  const [isOtherTyping, setIsOtherTyping] = useState(false)
   const bottomRef = useRef(null)
   const fileInputRef = useRef(null)
   const presenceChannelRef = useRef(null)
+  const typingTimeoutRef = useRef(null)
 
   useEffect(() => {
     const load = async () => {
@@ -31,25 +33,32 @@ export default function Chat() {
         .eq('sender_id', userId)
         .is('read_at', null)
 
-      const channel = supabase.channel('online-users', {
+      const channel = supabase.channel(`chat-presence-${[user.id, userId].sort().join('-')}`, {
         config: { presence: { key: user.id } }
       })
+
       channel
         .on('presence', { event: 'sync' }, () => {
           const state = channel.presenceState()
           setIsOtherOnline(!!state[userId])
+          const otherState = state[userId]?.[0]
+          setIsOtherTyping(otherState?.typing === true)
         })
         .on('presence', { event: 'join' }, ({ key }) => {
           if (key === userId) setIsOtherOnline(true)
         })
         .on('presence', { event: 'leave' }, ({ key }) => {
-          if (key === userId) setIsOtherOnline(false)
+          if (key === userId) {
+            setIsOtherOnline(false)
+            setIsOtherTyping(false)
+          }
         })
         .subscribe(async (status) => {
           if (status === 'SUBSCRIBED') {
-            await channel.track({ online_at: new Date().toISOString() })
+            await channel.track({ online_at: new Date().toISOString(), typing: false })
           }
         })
+
       presenceChannelRef.current = channel
     }
     load()
@@ -85,12 +94,30 @@ export default function Chat() {
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages])
+  }, [messages, isOtherTyping])
+
+  const handleTyping = async (e) => {
+    setNewMessage(e.target.value)
+    if (!presenceChannelRef.current) return
+
+    await presenceChannelRef.current.track({ online_at: new Date().toISOString(), typing: true })
+
+    clearTimeout(typingTimeoutRef.current)
+    typingTimeoutRef.current = setTimeout(async () => {
+      await presenceChannelRef.current.track({ online_at: new Date().toISOString(), typing: false })
+    }, 1500)
+  }
 
   const sendMessage = async () => {
     if (!newMessage.trim()) return
     const content = newMessage.trim()
     setNewMessage('')
+
+    if (presenceChannelRef.current) {
+      await presenceChannelRef.current.track({ online_at: new Date().toISOString(), typing: false })
+    }
+    clearTimeout(typingTimeoutRef.current)
+
     const tempMsg = {
       id: `temp-${Date.now()}`,
       sender_id: currentUser.id,
@@ -170,8 +197,8 @@ export default function Chat() {
         )}
         <div>
           <p style={{ fontWeight: '600' }}>{name}</p>
-          <p style={{ fontSize: '0.8rem', color: isOtherOnline ? '#4caf50' : '#888' }}>
-            {isOtherOnline ? '● Online' : '○ Offline'}
+          <p style={{ fontSize: '0.8rem', color: isOtherTyping ? '#a78bfa' : isOtherOnline ? '#4caf50' : '#888' }}>
+            {isOtherTyping ? '✍️ typing...' : isOtherOnline ? '● Online' : '○ Offline'}
           </p>
         </div>
       </div>
@@ -197,6 +224,15 @@ export default function Chat() {
             {renderMessage(msg)}
           </div>
         ))}
+
+        {isOtherTyping && (
+          <div style={{ alignSelf: 'flex-start', background: 'rgba(255,255,255,0.08)', padding: '0.65rem 1rem', borderRadius: '18px 18px 18px 4px', display: 'flex', gap: '4px', alignItems: 'center' }}>
+            <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#a78bfa', animation: 'bounce 1s infinite' }} />
+            <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#a78bfa', animation: 'bounce 1s infinite 0.2s' }} />
+            <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#a78bfa', animation: 'bounce 1s infinite 0.4s' }} />
+          </div>
+        )}
+
         <div ref={bottomRef} />
       </div>
 
@@ -209,7 +245,7 @@ export default function Chat() {
           type="text"
           placeholder="Type a message..."
           value={newMessage}
-          onChange={e => setNewMessage(e.target.value)}
+          onChange={handleTyping}
           onKeyDown={e => e.key === 'Enter' && sendMessage()}
           style={{ flex: 1, padding: '0.85rem 1rem', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.05)', color: 'white', fontFamily: 'Inter, sans-serif', fontSize: '0.95rem', outline: 'none' }}
         />
@@ -217,6 +253,13 @@ export default function Chat() {
           Send
         </button>
       </div>
+
+      <style>{`
+        @keyframes bounce {
+          0%, 60%, 100% { transform: translateY(0); }
+          30% { transform: translateY(-6px); }
+        }
+      `}</style>
     </div>
   )
 }
