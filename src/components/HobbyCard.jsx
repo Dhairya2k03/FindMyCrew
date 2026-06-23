@@ -1,12 +1,15 @@
 import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabaseClient'
 
 const avatarColors = ['#6c63ff', '#f59e0b', '#10b981', '#ef4444', '#3b82f6', '#ec4899']
 
 export default function HobbyCard({ profile, currentUserId, connectionStatus }) {
   const [status, setStatus] = useState(connectionStatus)
+  const navigate = useNavigate()
 
-  const sendRequest = async () => {
+  const sendRequest = async (e) => {
+    e.stopPropagation()
     const { error } = await supabase.from('connections').insert({
       sender_id: currentUserId,
       receiver_id: profile.id
@@ -39,7 +42,12 @@ export default function HobbyCard({ profile, currentUserId, connectionStatus }) 
   })
 
   return (
-    <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '16px', padding: '1.25rem', width: '100%', boxSizing: 'border-box' }}>
+    <div
+      onClick={() => navigate(`/user/${profile.id}`)}
+      style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '16px', padding: '1.25rem', width: '100%', boxSizing: 'border-box', cursor: 'pointer', transition: 'border-color 0.2s', }}
+      onMouseEnter={e => e.currentTarget.style.borderColor = 'rgba(108,99,255,0.3)'}
+      onMouseLeave={e => e.currentTarget.style.borderColor = 'rgba(255,255,255,0.08)'}
+    >
       <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '1rem' }}>
         {profile.avatar_url ? (
           <img src={profile.avatar_url} alt={name} style={{ width: '42px', height: '42px', borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }} />
@@ -59,7 +67,7 @@ export default function HobbyCard({ profile, currentUserId, connectionStatus }) 
         ))}
       </div>
 
-      <button onClick={status ? null : sendRequest} style={getButtonStyle()}>
+      <button onClick={status ? e => e.stopPropagation() : sendRequest} style={getButtonStyle()}>
         {getButtonLabel()}
       </button>
     </div>
