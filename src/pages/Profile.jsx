@@ -21,8 +21,11 @@ export default function Profile() {
   const [searchQuery, setSearchQuery] = useState('')
   const [searchResults, setSearchResults] = useState([])
   const [searching, setSearching] = useState(false)
+  const [avatarUrl, setAvatarUrl] = useState(null)
+  const [uploadingAvatar, setUploadingAvatar] = useState(false)
   const navigate = useNavigate()
   const searchTimeout = useRef(null)
+  const avatarInputRef = useRef(null)
 
   useEffect(() => {
     const load = async () => {
@@ -33,10 +36,37 @@ export default function Profile() {
         setUsername(data.username || '')
         setSelectedPlatforms(data.platforms || [])
         setSelectedGames(data.hobbies || [])
+        setAvatarUrl(data.avatar_url || null)
       }
     }
     load()
   }, [])
+
+  const uploadAvatar = async (e) => {
+    const file = e.target.files[0]
+    if (!file) return
+    if (!file.type.startsWith('image/')) return alert('Please select an image file')
+    if (file.size > 2 * 1024 * 1024) return alert('Image must be under 2MB')
+
+    setUploadingAvatar(true)
+    const fileName = `${user.id}/avatar-${Date.now()}.${file.name.split('.').pop()}`
+
+    const { error: uploadError } = await supabase.storage
+      .from('avatars')
+      .upload(fileName, file, { upsert: true })
+
+    if (uploadError) {
+      alert('Failed to upload: ' + uploadError.message)
+      setUploadingAvatar(false)
+      return
+    }
+
+    const { data: { publicUrl } } = supabase.storage.from('avatars').getPublicUrl(fileName)
+
+    await supabase.from('profiles').update({ avatar_url: publicUrl }).eq('id', user.id)
+    setAvatarUrl(publicUrl)
+    setUploadingAvatar(false)
+  }
 
   const togglePlatform = (id) => {
     setSelectedPlatforms(prev =>
@@ -57,16 +87,12 @@ export default function Profile() {
       setSearchResults([])
       return
     }
-
     setSearching(true)
-
     const platformIds = selectedPlatforms
       .map(p => PLATFORMS.find(pl => pl.id === p)?.rawgId)
       .filter(Boolean)
       .join(',')
-
     const url = `https://api.rawg.io/api/games?key=${RAWG_KEY}&search=${encodeURIComponent(query)}&platforms=${platformIds}&page_size=8`
-
     try {
       const res = await fetch(url)
       const data = await res.json()
@@ -108,12 +134,29 @@ export default function Profile() {
 
       {/* Avatar */}
       <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginBottom: '2rem', padding: '1.5rem', background: 'rgba(255,255,255,0.03)', borderRadius: '16px', border: '1px solid rgba(255,255,255,0.08)' }}>
-        <div style={{ width: '64px', height: '64px', borderRadius: '50%', background: color, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: '700', fontSize: '1.5rem', flexShrink: 0 }}>
-          {name[0]?.toUpperCase()}
+        <div style={{ position: 'relative', flexShrink: 0 }}>
+          {avatarUrl ? (
+            <img src={avatarUrl} alt="avatar" style={{ width: '64px', height: '64px', borderRadius: '50%', objectFit: 'cover' }} />
+          ) : (
+            <div style={{ width: '64px', height: '64px', borderRadius: '50%', background: color, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: '700', fontSize: '1.5rem' }}>
+              {name[0]?.toUpperCase()}
+            </div>
+          )}
+          <button
+            onClick={() => avatarInputRef.current.click()}
+            disabled={uploadingAvatar}
+            style={{ position: 'absolute', bottom: '-4px', right: '-4px', width: '24px', height: '24px', borderRadius: '50%', background: '#6c63ff', border: '2px solid #0f0f1a', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.7rem' }}
+          >
+            {uploadingAvatar ? '⏳' : '✏️'}
+          </button>
+          <input type="file" accept="image/*" ref={avatarInputRef} onChange={uploadAvatar} style={{ display: 'none' }} />
         </div>
         <div>
           <p style={{ fontWeight: '600', fontSize: '1.1rem' }}>{name}</p>
           <p style={{ color: '#888', fontSize: '0.85rem' }}>{user?.email}</p>
+          <p style={{ color: '#a78bfa', fontSize: '0.8rem', marginTop: '0.25rem', cursor: 'pointer' }} onClick={() => avatarInputRef.current.click()}>
+            {uploadingAvatar ? 'Uploading...' : 'Change photo'}
+          </p>
         </div>
       </div>
 
@@ -166,11 +209,7 @@ export default function Profile() {
               onChange={handleSearchChange}
               style={{ padding: '0.85rem 1rem', width: '100%', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.1)', fontSize: '1rem', background: 'rgba(255,255,255,0.05)', color: 'white', fontFamily: 'Inter, sans-serif', outline: 'none' }}
             />
-            {searching && (
-              <p style={{ color: '#888', fontSize: '0.85rem', marginTop: '0.5rem' }}>Searching...</p>
-            )}
-
-            {/* Search Results */}
+            {searching && <p style={{ color: '#888', fontSize: '0.85rem', marginTop: '0.5rem' }}>Searching...</p>}
             {searchResults.length > 0 && (
               <div style={{ marginTop: '0.75rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
                 {searchResults.map(game => {
@@ -179,30 +218,14 @@ export default function Profile() {
                     <div
                       key={game.id}
                       onClick={() => toggleGame(game.name)}
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '1rem',
-                        padding: '0.75rem 1rem',
-                        background: isSelected ? 'rgba(108,99,255,0.15)' : 'rgba(255,255,255,0.03)',
-                        border: isSelected ? '1px solid rgba(108,99,255,0.4)' : '1px solid rgba(255,255,255,0.08)',
-                        borderRadius: '10px',
-                        cursor: 'pointer',
-                        transition: 'all 0.2s'
-                      }}
+                      style={{ display: 'flex', alignItems: 'center', gap: '1rem', padding: '0.75rem 1rem', background: isSelected ? 'rgba(108,99,255,0.15)' : 'rgba(255,255,255,0.03)', border: isSelected ? '1px solid rgba(108,99,255,0.4)' : '1px solid rgba(255,255,255,0.08)', borderRadius: '10px', cursor: 'pointer', transition: 'all 0.2s' }}
                     >
                       {game.background_image && (
-                        <img
-                          src={game.background_image}
-                          alt={game.name}
-                          style={{ width: '48px', height: '48px', borderRadius: '8px', objectFit: 'cover', flexShrink: 0 }}
-                        />
+                        <img src={game.background_image} alt={game.name} style={{ width: '48px', height: '48px', borderRadius: '8px', objectFit: 'cover', flexShrink: 0 }} />
                       )}
                       <div style={{ flex: 1 }}>
                         <p style={{ fontWeight: '600', fontSize: '0.95rem', marginBottom: '0.2rem' }}>{game.name}</p>
-                        <p style={{ color: '#888', fontSize: '0.8rem' }}>
-                          {game.platforms?.slice(0, 3).map(p => p.platform.name).join(', ')}
-                        </p>
+                        <p style={{ color: '#888', fontSize: '0.8rem' }}>{game.platforms?.slice(0, 3).map(p => p.platform.name).join(', ')}</p>
                       </div>
                       <span style={{ color: isSelected ? '#a78bfa' : '#555', fontWeight: '600', fontSize: '0.85rem' }}>
                         {isSelected ? '✓ Added' : '+ Add'}
@@ -224,11 +247,7 @@ export default function Profile() {
           </p>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
             {selectedGames.map(game => (
-              <span
-                key={game}
-                onClick={() => toggleGame(game)}
-                style={{ background: 'rgba(108,99,255,0.2)', color: '#a78bfa', padding: '3px 10px', borderRadius: '100px', fontSize: '0.8rem', border: '1px solid rgba(108,99,255,0.3)', cursor: 'pointer' }}
-              >
+              <span key={game} onClick={() => toggleGame(game)} style={{ background: 'rgba(108,99,255,0.2)', color: '#a78bfa', padding: '3px 10px', borderRadius: '100px', fontSize: '0.8rem', border: '1px solid rgba(108,99,255,0.3)', cursor: 'pointer' }}>
                 {game} ✕
               </span>
             ))}
