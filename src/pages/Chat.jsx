@@ -2,6 +2,17 @@ import { useState, useEffect, useRef } from 'react'
 import { useParams } from 'react-router-dom'
 import { supabase } from '../lib/supabaseClient'
 
+const formatLastSeen = (date) => {
+  if (!date) return 'Offline'
+  const d = new Date(date)
+  const diff = new Date() - d
+  if (diff < 60000) return 'Last seen just now'
+  if (diff < 3600000) return `Last seen ${Math.floor(diff / 60000)}m ago`
+  if (diff < 86400000) return `Last seen ${Math.floor(diff / 3600000)}h ago`
+  if (diff < 604800000) return `Last seen ${Math.floor(diff / 86400000)}d ago`
+  return `Last seen ${d.toLocaleDateString()}`
+}
+
 export default function Chat() {
   const { userId } = useParams()
   const [messages, setMessages] = useState([])
@@ -20,6 +31,10 @@ export default function Chat() {
     const load = async () => {
       const { data: { user } } = await supabase.auth.getUser()
       setCurrentUser(user)
+
+      // Update current user's last seen
+      supabase.from('profiles').update({ last_seen: new Date().toISOString() }).eq('id', user.id).then(() => {})
+
       const { data: profile } = await supabase.from('profiles').select('*').eq('id', userId).single()
       setOtherUser(profile)
       const { data: msgs } = await supabase.from('messages').select('*')
@@ -52,6 +67,10 @@ export default function Chat() {
           if (key === userId) {
             setIsOtherOnline(false)
             setIsOtherTyping(false)
+            // Refresh other user's last seen
+            supabase.from('profiles').select('last_seen').eq('id', userId).single().then(({ data }) => {
+              if (data) setOtherUser(prev => ({ ...prev, last_seen: data.last_seen }))
+            })
           }
         })
         .subscribe(async (status) => {
@@ -63,7 +82,18 @@ export default function Chat() {
       presenceChannelRef.current = channel
     }
     load()
+
+    // Update last seen every 2 minutes while in chat
+    const interval = setInterval(() => {
+      if (presenceChannelRef.current) {
+        supabase.auth.getUser().then(({ data: { user } }) => {
+          if (user) supabase.from('profiles').update({ last_seen: new Date().toISOString() }).eq('id', user.id).then(() => {})
+        })
+      }
+    }, 120000)
+
     return () => {
+      clearInterval(interval)
       if (presenceChannelRef.current) supabase.removeChannel(presenceChannelRef.current)
     }
   }, [userId])
@@ -83,10 +113,7 @@ export default function Chat() {
             return [...prev, msg]
           })
           if (msg.sender_id === userId) {
-            supabase.from('messages')
-              .update({ read_at: new Date().toISOString() })
-              .eq('id', msg.id)
-              .then(() => {})
+            supabase.from('messages').update({ read_at: new Date().toISOString() }).eq('id', msg.id).then(() => {})
           }
         }
       })
@@ -112,12 +139,9 @@ export default function Chat() {
     if (!newMessage.trim()) return
     const content = newMessage.trim()
     setNewMessage('')
-
-    // Stop typing indicator without awaiting
     clearTimeout(typingTimeoutRef.current)
     presenceChannelRef.current?.track({ online_at: new Date().toISOString(), typing: false })
 
-    // Show message instantly
     const tempMsg = {
       id: `temp-${Date.now()}`,
       sender_id: currentUser.id,
@@ -127,7 +151,6 @@ export default function Chat() {
     }
     setMessages(prev => [...prev, tempMsg])
 
-    // Save to DB in background
     supabase.from('messages').insert({
       sender_id: currentUser.id,
       receiver_id: userId,
@@ -189,6 +212,14 @@ export default function Chat() {
   const avatarColors = ['#6c63ff', '#f59e0b', '#10b981', '#ef4444', '#3b82f6', '#ec4899']
   const color = avatarColors[name.charCodeAt(0) % avatarColors.length]
 
+  const getStatus = () => {
+    if (isOtherTyping) return { text: '✍️ typing...', color: '#a78bfa' }
+    if (isOtherOnline) return { text: '● Online', color: '#4caf50' }
+    return { text: formatLastSeen(otherUser?.last_seen), color: '#888' }
+  }
+
+  const status = getStatus()
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 64px)', maxWidth: '700px', margin: '0 auto', padding: '1.5rem' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '1.5rem', padding: '1rem 1.5rem', background: 'rgba(255,255,255,0.03)', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.08)' }}>
@@ -201,9 +232,7 @@ export default function Chat() {
         )}
         <div>
           <p style={{ fontWeight: '600' }}>{name}</p>
-          <p style={{ fontSize: '0.8rem', color: isOtherTyping ? '#a78bfa' : isOtherOnline ? '#4caf50' : '#888' }}>
-            {isOtherTyping ? '✍️ typing...' : isOtherOnline ? '● Online' : '○ Offline'}
-          </p>
+          <p style={{ fontSize: '0.8rem', color: status.color }}>{status.text}</p>
         </div>
       </div>
 
