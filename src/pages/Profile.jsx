@@ -50,28 +50,13 @@ export default function Profile() {
     setUploadingAvatar(true)
 
     try {
-      // Convert any image format to PNG using canvas
-      const img = await new Promise((resolve, reject) => {
-        const image = new Image()
-        const url = URL.createObjectURL(file)
-        image.onload = () => { URL.revokeObjectURL(url); resolve(image) }
-        image.onerror = reject
-        image.src = url
-})
-      const canvas = document.createElement('canvas')
-      const maxSize = 400
-      const scale = Math.min(maxSize / img.width, maxSize / img.height, 1)
-      canvas.width = Math.round(img.width * scale)
-      canvas.height = Math.round(img.height * scale)
-      const ctx = canvas.getContext('2d')
-      ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
-
-      const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png'))
-      const fileName = `${user.id}/avatar-${Date.now()}.png`
+      const ext = file.name.split('.').pop().toLowerCase()
+      const contentType = file.type || 'image/jpeg'
+      const fileName = `${user.id}/avatar-${Date.now()}.${ext}`
 
       const { error: uploadError } = await supabase.storage
         .from('avatars')
-        .upload(fileName, blob, { upsert: true, contentType: 'image/png' })
+        .upload(fileName, file, { upsert: true, contentType })
 
       if (uploadError) {
         alert('Failed to upload: ' + uploadError.message)
@@ -83,7 +68,7 @@ export default function Profile() {
       await supabase.from('profiles').update({ avatar_url: publicUrl }).eq('id', user.id)
       setAvatarUrl(publicUrl)
     } catch (err) {
-      alert('Failed to process image: ' + err.message)
+      alert('Failed to upload: ' + err.message)
     }
 
     setUploadingAvatar(false)
