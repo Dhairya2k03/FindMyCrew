@@ -5,29 +5,38 @@ import { supabase } from '../lib/supabaseClient'
 export default function Navbar() {
   const navigate = useNavigate()
   const location = useLocation()
-  const [unreadCount, setUnreadCount] = useState(0)
+  const [unreadMessages, setUnreadMessages] = useState(0)
+  const [unreadNotifs, setUnreadNotifs] = useState(0)
   const [menuOpen, setMenuOpen] = useState(false)
 
   useEffect(() => {
-    const loadUnread = async () => {
+    const load = async () => {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) return
-      const { data } = await supabase
+
+      const { data: msgs } = await supabase
         .from('messages')
         .select('id')
         .eq('receiver_id', user.id)
         .is('read_at', null)
-      setUnreadCount(data?.length || 0)
-    }
-    loadUnread()
+      setUnreadMessages(msgs?.length || 0)
 
-    const channel = supabase.channel('navbar-unread')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'messages' }, () => loadUnread())
+      const { data: notifs } = await supabase
+        .from('notifications')
+        .select('id')
+        .eq('user_id', user.id)
+        .eq('read', false)
+      setUnreadNotifs(notifs?.length || 0)
+    }
+    load()
+
+    const channel = supabase.channel('navbar-badges')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'messages' }, () => load())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'notifications' }, () => load())
       .subscribe()
     return () => supabase.removeChannel(channel)
   }, [])
 
-  // Close menu on route change
   useEffect(() => { setMenuOpen(false) }, [location.pathname])
 
   const handleLogout = async () => {
@@ -40,9 +49,10 @@ export default function Navbar() {
   const navItems = [
     { path: '/', label: 'Home' },
     { path: '/browse', label: 'Browse' },
-    { path: '/messages', label: 'Messages', badge: unreadCount },
+    { path: '/messages', label: 'Messages', badge: unreadMessages },
     { path: '/groups', label: 'Groups' },
     { path: '/connections', label: 'Connections' },
+    { path: '/notifications', label: '🔔', badge: unreadNotifs },
     { path: '/profile', label: 'Profile' },
   ]
 
@@ -53,7 +63,6 @@ export default function Navbar() {
           🎮 FindMyCrew
         </Link>
 
-        {/* Desktop nav */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }} className="desktop-nav">
           {navItems.map(({ path, label, badge }) => (
             <Link key={path} to={path} style={{ padding: '0.5rem 1rem', borderRadius: '8px', color: isActive(path) ? '#6c63ff' : '#aaa', fontWeight: isActive(path) ? '600' : '400', background: isActive(path) ? 'rgba(108, 99, 255, 0.1)' : 'transparent', transition: 'all 0.2s', display: 'flex', alignItems: 'center', gap: '0.3rem', whiteSpace: 'nowrap' }}>
@@ -70,25 +79,23 @@ export default function Navbar() {
           </button>
         </div>
 
-        {/* Mobile hamburger */}
         <button
           onClick={() => setMenuOpen(!menuOpen)}
           className="hamburger"
-          style={{ display: 'none', background: 'none', border: 'none', color: 'white', fontSize: '1.5rem', cursor: 'pointer', padding: '0.5rem' }}
+          style={{ display: 'none', background: 'none', border: 'none', color: 'white', fontSize: '1.5rem', cursor: 'pointer', padding: '0.5rem', position: 'relative' }}
         >
           {menuOpen ? '✕' : '☰'}
-          {!menuOpen && unreadCount > 0 && (
-            <span style={{ position: 'absolute', top: '12px', right: '12px', width: '8px', height: '8px', borderRadius: '50%', background: '#6c63ff' }} />
+          {!menuOpen && (unreadMessages > 0 || unreadNotifs > 0) && (
+            <span style={{ position: 'absolute', top: '6px', right: '6px', width: '8px', height: '8px', borderRadius: '50%', background: '#6c63ff' }} />
           )}
         </button>
       </nav>
 
-      {/* Mobile menu */}
       {menuOpen && (
-        <div style={{ position: 'fixed', top: '64px', left: 0, right: 0, bottom: 0, background: 'rgba(15,15,26,0.98)', zIndex: 99, display: 'flex', flexDirection: 'column', padding: '1.5rem', gap: '0.5rem' }}>
+        <div style={{ position: 'fixed', top: '64px', left: 0, right: 0, bottom: 0, background: 'rgba(15,15,26,0.98)', zIndex: 99, display: 'flex', flexDirection: 'column', padding: '1.5rem', gap: '0.5rem', overflowY: 'auto' }}>
           {navItems.map(({ path, label, badge }) => (
             <Link key={path} to={path} style={{ padding: '1rem 1.25rem', borderRadius: '12px', color: isActive(path) ? '#a78bfa' : 'white', fontWeight: isActive(path) ? '700' : '500', background: isActive(path) ? 'rgba(108,99,255,0.15)' : 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)', fontSize: '1.05rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              {label}
+              {label === '🔔' ? '🔔 Notifications' : label}
               {badge > 0 && (
                 <span style={{ background: '#6c63ff', color: 'white', borderRadius: '100px', fontSize: '0.75rem', fontWeight: '700', padding: '2px 8px' }}>
                   {badge > 9 ? '9+' : badge}
@@ -105,7 +112,7 @@ export default function Navbar() {
       <style>{`
         @media (max-width: 768px) {
           .desktop-nav { display: none !important; }
-          .hamburger { display: block !important; position: relative; }
+          .hamburger { display: block !important; }
         }
       `}</style>
     </>
