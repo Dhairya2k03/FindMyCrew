@@ -241,7 +241,7 @@ export default function Chat() {
   const color = avatarColors[name.charCodeAt(0) % avatarColors.length]
 
   const getStatus = () => {
-    if (isOtherTyping) return { text: '✍️ typing...', color: '#a78bfa' }
+    if (isOtherTyping) return { text: '● typing...', color: '#a78bfa' }
     if (isOtherOnline) return { text: '● Online', color: '#4caf50' }
     return { text: formatLastSeen(otherUser?.last_seen), color: '#888' }
   }
