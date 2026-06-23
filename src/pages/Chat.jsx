@@ -22,6 +22,7 @@ export default function Chat() {
   const [uploading, setUploading] = useState(false)
   const [isOtherOnline, setIsOtherOnline] = useState(false)
   const [isOtherTyping, setIsOtherTyping] = useState(false)
+  const [hoveredMsg, setHoveredMsg] = useState(null)
   const bottomRef = useRef(null)
   const fileInputRef = useRef(null)
   const presenceChannelRef = useRef(null)
@@ -32,7 +33,6 @@ export default function Chat() {
       const { data: { user } } = await supabase.auth.getUser()
       setCurrentUser(user)
 
-      // Update current user's last seen
       supabase.from('profiles').update({ last_seen: new Date().toISOString() }).eq('id', user.id).then(() => {})
 
       const { data: profile } = await supabase.from('profiles').select('*').eq('id', userId).single()
@@ -67,7 +67,6 @@ export default function Chat() {
           if (key === userId) {
             setIsOtherOnline(false)
             setIsOtherTyping(false)
-            // Refresh other user's last seen
             supabase.from('profiles').select('last_seen').eq('id', userId).single().then(({ data }) => {
               if (data) setOtherUser(prev => ({ ...prev, last_seen: data.last_seen }))
             })
@@ -83,13 +82,10 @@ export default function Chat() {
     }
     load()
 
-    // Update last seen every 2 minutes while in chat
     const interval = setInterval(() => {
-      if (presenceChannelRef.current) {
-        supabase.auth.getUser().then(({ data: { user } }) => {
-          if (user) supabase.from('profiles').update({ last_seen: new Date().toISOString() }).eq('id', user.id).then(() => {})
-        })
-      }
+      supabase.auth.getUser().then(({ data: { user } }) => {
+        if (user) supabase.from('profiles').update({ last_seen: new Date().toISOString() }).eq('id', user.id).then(() => {})
+      })
     }, 120000)
 
     return () => {
@@ -101,7 +97,7 @@ export default function Chat() {
   useEffect(() => {
     if (!currentUser) return
     const channel = supabase.channel('messages')
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, async payload => {
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, payload => {
         const msg = payload.new
         if (
           (msg.sender_id === currentUser?.id && msg.receiver_id === userId) ||
@@ -116,6 +112,9 @@ export default function Chat() {
             supabase.from('messages').update({ read_at: new Date().toISOString() }).eq('id', msg.id).then(() => {})
           }
         }
+      })
+      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'messages' }, payload => {
+        setMessages(prev => prev.filter(m => m.id !== payload.old.id))
       })
       .subscribe()
     return () => supabase.removeChannel(channel)
@@ -158,6 +157,11 @@ export default function Chat() {
     }).select().single().then(({ data }) => {
       if (data) setMessages(prev => prev.map(m => m.id === tempMsg.id ? data : m))
     })
+  }
+
+  const deleteMessage = async (msgId) => {
+    setMessages(prev => prev.filter(m => m.id !== msgId))
+    await supabase.from('messages').delete().eq('id', msgId)
   }
 
   const sendImage = async (e) => {
@@ -243,21 +247,39 @@ export default function Chat() {
             <p>Say hi to {name}!</p>
           </div>
         )}
-        {messages.map(msg => (
-          <div key={msg.id} style={{
-            alignSelf: msg.sender_id === currentUser?.id ? 'flex-end' : 'flex-start',
-            background: msg.content?.startsWith('[image]') ? 'transparent' : msg.sender_id === currentUser?.id ? 'linear-gradient(135deg, #6c63ff, #a78bfa)' : 'rgba(255,255,255,0.08)',
-            color: 'white',
-            padding: msg.content?.startsWith('[image]') ? '0' : '0.65rem 1rem',
-            borderRadius: msg.sender_id === currentUser?.id ? '18px 18px 4px 18px' : '18px 18px 18px 4px',
-            maxWidth: '70%',
-            fontSize: '0.95rem',
-            lineHeight: 1.4,
-            opacity: msg.id?.toString().startsWith('temp-') ? 0.7 : 1
-          }}>
-            {renderMessage(msg)}
-          </div>
-        ))}
+        {messages.map(msg => {
+          const isMine = msg.sender_id === currentUser?.id
+          const isTemp = msg.id?.toString().startsWith('temp-')
+          const isHovered = hoveredMsg === msg.id
+          return (
+            <div
+              key={msg.id}
+              style={{ alignSelf: isMine ? 'flex-end' : 'flex-start', display: 'flex', flexDirection: isMine ? 'row-reverse' : 'row', alignItems: 'center', gap: '0.5rem', maxWidth: '75%' }}
+              onMouseEnter={() => setHoveredMsg(msg.id)}
+              onMouseLeave={() => setHoveredMsg(null)}
+            >
+              <div style={{
+                background: msg.content?.startsWith('[image]') ? 'transparent' : isMine ? 'linear-gradient(135deg, #6c63ff, #a78bfa)' : 'rgba(255,255,255,0.08)',
+                color: 'white',
+                padding: msg.content?.startsWith('[image]') ? '0' : '0.65rem 1rem',
+                borderRadius: isMine ? '18px 18px 4px 18px' : '18px 18px 18px 4px',
+                fontSize: '0.95rem',
+                lineHeight: 1.4,
+                opacity: isTemp ? 0.7 : 1
+              }}>
+                {renderMessage(msg)}
+              </div>
+              {isMine && isHovered && !isTemp && (
+                <button
+                  onClick={() => deleteMessage(msg.id)}
+                  style={{ background: 'rgba(239,68,68,0.15)', border: '1px solid rgba(239,68,68,0.2)', color: '#ef4444', borderRadius: '6px', padding: '0.25rem 0.5rem', cursor: 'pointer', fontSize: '0.75rem', flexShrink: 0 }}
+                >
+                  🗑️
+                </button>
+              )}
+            </div>
+          )
+        })}
 
         {isOtherTyping && (
           <div style={{ alignSelf: 'flex-start', background: 'rgba(255,255,255,0.08)', padding: '0.65rem 1rem', borderRadius: '18px 18px 18px 4px', display: 'flex', gap: '4px', alignItems: 'center' }}>
