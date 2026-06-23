@@ -51,13 +51,21 @@ export default function HobbyCard({ profile, currentUserId, connectionStatus }) 
       width: '220px'
     }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '1rem' }}>
-        <div style={{
-          width: '42px', height: '42px', borderRadius: '50%',
-          background: color, display: 'flex', alignItems: 'center',
-          justifyContent: 'center', fontWeight: '700', fontSize: '1.1rem', flexShrink: 0
-        }}>
-          {initial}
-        </div>
+        {profile.avatar_url ? (
+          <img
+            src={profile.avatar_url}
+            alt={name}
+            style={{ width: '42px', height: '42px', borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }}
+          />
+        ) : (
+          <div style={{
+            width: '42px', height: '42px', borderRadius: '50%',
+            background: color, display: 'flex', alignItems: 'center',
+            justifyContent: 'center', fontWeight: '700', fontSize: '1.1rem', flexShrink: 0
+          }}>
+            {initial}
+          </div>
+        )}
         <h3 style={{ fontSize: '0.95rem', fontWeight: '600', color: '#fff' }}>{name}</h3>
       </div>
 

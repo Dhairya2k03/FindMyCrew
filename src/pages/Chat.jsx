@@ -167,7 +167,7 @@ export default function Chat() {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 64px)', maxWidth: '700px', margin: '0 auto', padding: '1.5rem' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '1.5rem', padding: '1rem 1.5rem', background: 'rgba(255,255,255,0.03)', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.08)' }}>
-        <div style={{ width: '40px', height: '40px', borderRadius: '50%', background: color, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: '700' }}>
+        {otherUser?.avatar_url ? <img src={otherUser.avatar_url} alt={name} style={{ width: "40px", height: "40px", borderRadius: "50%", objectFit: "cover" }} /> : <div style={{ width: "40px", height: "40px", borderRadius: "50%", background: color, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: "700" }}>}
           {name[0]?.toUpperCase()}
         </div>
         <div>
