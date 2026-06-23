@@ -50,7 +50,7 @@ export default function Messages() {
     load()
 
     const channel = supabase.channel('messages-list')
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, () => load())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'messages' }, () => load())
       .subscribe()
     return () => supabase.removeChannel(channel)
   }, [])
@@ -102,9 +102,13 @@ export default function Messages() {
                 style={{ display: 'flex', alignItems: 'center', gap: '1rem', padding: '1rem 1.25rem', background: conv.unread > 0 ? 'rgba(108,99,255,0.08)' : 'rgba(255,255,255,0.03)', border: conv.unread > 0 ? '1px solid rgba(108,99,255,0.2)' : '1px solid rgba(255,255,255,0.07)', borderRadius: '14px', cursor: 'pointer', transition: 'all 0.2s' }}
               >
                 <div style={{ position: 'relative', flexShrink: 0 }}>
-                  <div style={{ width: '46px', height: '46px', borderRadius: '50%', background: color, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: '700', fontSize: '1.1rem' }}>
-                    {name[0]?.toUpperCase()}
-                  </div>
+                  {conv.profile?.avatar_url ? (
+                    <img src={conv.profile.avatar_url} alt={name} style={{ width: '46px', height: '46px', borderRadius: '50%', objectFit: 'cover' }} />
+                  ) : (
+                    <div style={{ width: '46px', height: '46px', borderRadius: '50%', background: color, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: '700', fontSize: '1.1rem' }}>
+                      {name[0]?.toUpperCase()}
+                    </div>
+                  )}
                   {conv.unread > 0 && (
                     <div style={{ position: 'absolute', top: '-4px', right: '-4px', width: '18px', height: '18px', borderRadius: '50%', background: '#6c63ff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.65rem', fontWeight: '700', color: 'white' }}>
                       {conv.unread > 9 ? '9+' : conv.unread}
