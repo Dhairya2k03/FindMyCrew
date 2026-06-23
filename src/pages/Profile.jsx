@@ -51,15 +51,20 @@ export default function Profile() {
 
     try {
       // Convert any image format to PNG using canvas
-      const bitmap = await createImageBitmap(file)
+      const img = await new Promise((resolve, reject) => {
+        const image = new Image()
+        const url = URL.createObjectURL(file)
+        image.onload = () => { URL.revokeObjectURL(url); resolve(image) }
+        image.onerror = reject
+        image.src = url
+})
       const canvas = document.createElement('canvas')
-      // Resize to max 400x400 to save space
       const maxSize = 400
-      const scale = Math.min(maxSize / bitmap.width, maxSize / bitmap.height, 1)
-      canvas.width = Math.round(bitmap.width * scale)
-      canvas.height = Math.round(bitmap.height * scale)
+      const scale = Math.min(maxSize / img.width, maxSize / img.height, 1)
+      canvas.width = Math.round(img.width * scale)
+      canvas.height = Math.round(img.height * scale)
       const ctx = canvas.getContext('2d')
-      ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height)
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
 
       const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png'))
       const fileName = `${user.id}/avatar-${Date.now()}.png`
