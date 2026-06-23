@@ -21,7 +21,6 @@ export default function Browse() {
         const { data: others, error: fetchError } = await supabase.from('profiles').select('*').neq('id', user.id)
         if (fetchError) { setError(fetchError.message); setLoading(false); return }
 
-        // Load all connections involving this user
         const { data: sentConns } = await supabase.from('connections').select('*').eq('sender_id', user.id)
         const { data: receivedConns } = await supabase.from('connections').select('*').eq('receiver_id', user.id)
 
@@ -53,8 +52,8 @@ export default function Browse() {
   )
 
   return (
-    <div style={{ padding: '2rem', maxWidth: '1100px', margin: '0 auto' }}>
-      <div style={{ marginBottom: '2rem' }}>
+    <div style={{ padding: '1.5rem', maxWidth: '1100px', margin: '0 auto' }}>
+      <div style={{ marginBottom: '1.5rem' }}>
         <h2 style={{ fontSize: '1.75rem', fontWeight: '700', marginBottom: '0.5rem' }}>Find Players 🎮</h2>
         <p style={{ color: '#888' }}>Players are sorted by how many hobbies you share</p>
       </div>
@@ -64,19 +63,7 @@ export default function Browse() {
         placeholder="Search by username..."
         value={search}
         onChange={e => setSearch(e.target.value)}
-        style={{
-          padding: '0.75rem 1rem',
-          borderRadius: '10px',
-          border: '1px solid rgba(255,255,255,0.1)',
-          background: 'rgba(255,255,255,0.05)',
-          color: 'white',
-          fontFamily: 'Inter, sans-serif',
-          fontSize: '0.95rem',
-          width: '100%',
-          maxWidth: '400px',
-          marginBottom: '2rem',
-          outline: 'none'
-        }}
+        style={{ padding: '0.75rem 1rem', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.05)', color: 'white', fontFamily: 'Inter, sans-serif', fontSize: '0.95rem', width: '100%', maxWidth: '400px', marginBottom: '1.5rem', outline: 'none', boxSizing: 'border-box' }}
       />
 
       {error && <p style={{ color: '#f44336' }}>Error: {error}</p>}
@@ -84,7 +71,7 @@ export default function Browse() {
       {filtered.length === 0 ? (
         <p style={{ color: '#888' }}>No players found.</p>
       ) : (
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '1rem' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '1rem' }}>
           {filtered.map(p => (
             <HobbyCard
               key={p.id}

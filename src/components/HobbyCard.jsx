@@ -28,11 +28,7 @@ export default function HobbyCard({ profile, currentUserId, connectionStatus }) 
   const getButtonStyle = () => ({
     width: '100%',
     padding: '0.6rem',
-    background: status === 'accepted'
-      ? 'rgba(16, 185, 129, 0.15)'
-      : status === 'pending'
-      ? 'rgba(255,255,255,0.05)'
-      : 'linear-gradient(135deg, #6c63ff, #a78bfa)',
+    background: status === 'accepted' ? 'rgba(16, 185, 129, 0.15)' : status === 'pending' ? 'rgba(255,255,255,0.05)' : 'linear-gradient(135deg, #6c63ff, #a78bfa)',
     color: status === 'accepted' ? '#10b981' : status === 'pending' ? '#888' : 'white',
     border: status ? '1px solid rgba(255,255,255,0.1)' : 'none',
     borderRadius: '8px',
@@ -43,39 +39,21 @@ export default function HobbyCard({ profile, currentUserId, connectionStatus }) 
   })
 
   return (
-    <div style={{
-      background: 'rgba(255,255,255,0.03)',
-      border: '1px solid rgba(255,255,255,0.08)',
-      borderRadius: '16px',
-      padding: '1.5rem',
-      width: '220px'
-    }}>
+    <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '16px', padding: '1.25rem', width: '100%', boxSizing: 'border-box' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '1rem' }}>
         {profile.avatar_url ? (
-          <img
-            src={profile.avatar_url}
-            alt={name}
-            style={{ width: '42px', height: '42px', borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }}
-          />
+          <img src={profile.avatar_url} alt={name} style={{ width: '42px', height: '42px', borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }} />
         ) : (
-          <div style={{
-            width: '42px', height: '42px', borderRadius: '50%',
-            background: color, display: 'flex', alignItems: 'center',
-            justifyContent: 'center', fontWeight: '700', fontSize: '1.1rem', flexShrink: 0
-          }}>
+          <div style={{ width: '42px', height: '42px', borderRadius: '50%', background: color, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: '700', fontSize: '1.1rem', flexShrink: 0 }}>
             {initial}
           </div>
         )}
-        <h3 style={{ fontSize: '0.95rem', fontWeight: '600', color: '#fff' }}>{name}</h3>
+        <h3 style={{ fontSize: '0.95rem', fontWeight: '600', color: '#fff', wordBreak: 'break-word' }}>{name}</h3>
       </div>
 
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.3rem', marginBottom: '1rem' }}>
         {(profile.hobbies || []).map(h => (
-          <span key={h} style={{
-            background: 'rgba(108, 99, 255, 0.2)', color: '#a78bfa',
-            padding: '3px 10px', borderRadius: '100px', fontSize: '0.75rem',
-            fontWeight: '500', border: '1px solid rgba(108, 99, 255, 0.3)'
-          }}>
+          <span key={h} style={{ background: 'rgba(108, 99, 255, 0.2)', color: '#a78bfa', padding: '3px 10px', borderRadius: '100px', fontSize: '0.75rem', fontWeight: '500', border: '1px solid rgba(108, 99, 255, 0.3)' }}>
             {h}
           </span>
         ))}
