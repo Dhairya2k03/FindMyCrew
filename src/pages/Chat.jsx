@@ -27,11 +27,12 @@ export default function Chat() {
         .order('created_at', { ascending: true })
       setMessages(msgs || [])
 
-      await supabase.from('messages')
+      supabase.from('messages')
         .update({ read_at: new Date().toISOString() })
         .eq('receiver_id', user.id)
         .eq('sender_id', userId)
         .is('read_at', null)
+        .then(() => {})
 
       const channel = supabase.channel(`chat-presence-${[user.id, userId].sort().join('-')}`, {
         config: { presence: { key: user.id } }
@@ -55,7 +56,7 @@ export default function Chat() {
         })
         .subscribe(async (status) => {
           if (status === 'SUBSCRIBED') {
-            await channel.track({ online_at: new Date().toISOString(), typing: false })
+            channel.track({ online_at: new Date().toISOString(), typing: false })
           }
         })
 
@@ -82,9 +83,10 @@ export default function Chat() {
             return [...prev, msg]
           })
           if (msg.sender_id === userId) {
-            await supabase.from('messages')
+            supabase.from('messages')
               .update({ read_at: new Date().toISOString() })
               .eq('id', msg.id)
+              .then(() => {})
           }
         }
       })
@@ -96,15 +98,13 @@ export default function Chat() {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, isOtherTyping])
 
-  const handleTyping = async (e) => {
+  const handleTyping = (e) => {
     setNewMessage(e.target.value)
     if (!presenceChannelRef.current) return
-
-    await presenceChannelRef.current.track({ online_at: new Date().toISOString(), typing: true })
-
+    presenceChannelRef.current.track({ online_at: new Date().toISOString(), typing: true })
     clearTimeout(typingTimeoutRef.current)
-    typingTimeoutRef.current = setTimeout(async () => {
-      await presenceChannelRef.current.track({ online_at: new Date().toISOString(), typing: false })
+    typingTimeoutRef.current = setTimeout(() => {
+      presenceChannelRef.current?.track({ online_at: new Date().toISOString(), typing: false })
     }, 1500)
   }
 
@@ -113,11 +113,11 @@ export default function Chat() {
     const content = newMessage.trim()
     setNewMessage('')
 
-    if (presenceChannelRef.current) {
-      await presenceChannelRef.current.track({ online_at: new Date().toISOString(), typing: false })
-    }
+    // Stop typing indicator without awaiting
     clearTimeout(typingTimeoutRef.current)
+    presenceChannelRef.current?.track({ online_at: new Date().toISOString(), typing: false })
 
+    // Show message instantly
     const tempMsg = {
       id: `temp-${Date.now()}`,
       sender_id: currentUser.id,
@@ -126,12 +126,15 @@ export default function Chat() {
       created_at: new Date()
     }
     setMessages(prev => [...prev, tempMsg])
-    const { data } = await supabase.from('messages').insert({
+
+    // Save to DB in background
+    supabase.from('messages').insert({
       sender_id: currentUser.id,
       receiver_id: userId,
       content
-    }).select().single()
-    if (data) setMessages(prev => prev.map(m => m.id === tempMsg.id ? data : m))
+    }).select().single().then(({ data }) => {
+      if (data) setMessages(prev => prev.map(m => m.id === tempMsg.id ? data : m))
+    })
   }
 
   const sendImage = async (e) => {
@@ -156,12 +159,13 @@ export default function Chat() {
       created_at: new Date()
     }
     setMessages(prev => [...prev, tempMsg])
-    const { data } = await supabase.from('messages').insert({
+    supabase.from('messages').insert({
       sender_id: currentUser.id,
       receiver_id: userId,
       content: `[image]${publicUrl}`
-    }).select().single()
-    if (data) setMessages(prev => prev.map(m => m.id === tempMsg.id ? data : m))
+    }).select().single().then(({ data }) => {
+      if (data) setMessages(prev => prev.map(m => m.id === tempMsg.id ? data : m))
+    })
     setUploading(false)
     fileInputRef.current.value = ''
   }
@@ -219,7 +223,8 @@ export default function Chat() {
             borderRadius: msg.sender_id === currentUser?.id ? '18px 18px 4px 18px' : '18px 18px 18px 4px',
             maxWidth: '70%',
             fontSize: '0.95rem',
-            lineHeight: 1.4
+            lineHeight: 1.4,
+            opacity: msg.id?.toString().startsWith('temp-') ? 0.7 : 1
           }}>
             {renderMessage(msg)}
           </div>
@@ -232,7 +237,6 @@ export default function Chat() {
             <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#a78bfa', animation: 'bounce 1s infinite 0.4s' }} />
           </div>
         )}
-
         <div ref={bottomRef} />
       </div>
 
