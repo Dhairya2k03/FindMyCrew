@@ -14,12 +14,17 @@ export default function Navbar() {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) return
 
+      const chatMatch = location.pathname.match(/\/chat\/([^/]+)/)
+      const openChatUserId = chatMatch ? chatMatch[1] : null
+
       const { data: msgs } = await supabase
         .from('messages')
-        .select('id')
+        .select('id, sender_id')
         .eq('receiver_id', user.id)
         .is('read_at', null)
-      setUnreadMessages(msgs?.length || 0)
+
+      const filtered = msgs?.filter(m => m.sender_id !== openChatUserId) || []
+      setUnreadMessages(filtered.length)
 
       const { data: notifs } = await supabase
         .from('notifications')
@@ -28,6 +33,7 @@ export default function Navbar() {
         .eq('read', false)
       setUnreadNotifs(notifs?.length || 0)
     }
+
     load()
 
     const channel = supabase.channel('navbar-badges')
@@ -35,7 +41,7 @@ export default function Navbar() {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'notifications' }, () => load())
       .subscribe()
     return () => supabase.removeChannel(channel)
-  }, [])
+  }, [location.pathname])
 
   useEffect(() => { setMenuOpen(false) }, [location.pathname])
 
