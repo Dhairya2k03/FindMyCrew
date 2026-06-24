@@ -26,19 +26,16 @@ export default function Chat() {
   const bottomRef = useRef(null)
   const fileInputRef = useRef(null)
   const presenceChannelRef = useRef(null)
+  const broadcastChannelRef = useRef(null)
   const typingTimeoutRef = useRef(null)
-  const currentUserRef = useRef(null)
   const userIdRef = useRef(userId)
 
-  useEffect(() => {
-    userIdRef.current = userId
-  }, [userId])
+  useEffect(() => { userIdRef.current = userId }, [userId])
 
   useEffect(() => {
     const load = async () => {
       const { data: { user } } = await supabase.auth.getUser()
       setCurrentUser(user)
-      currentUserRef.current = user
 
       supabase.from('profiles').update({ last_seen: new Date().toISOString() }).eq('id', user.id).then(() => {})
 
@@ -57,69 +54,57 @@ export default function Chat() {
         .is('read_at', null)
         .then(() => {})
 
-      const channelName = `chat-presence-${[user.id, userId].sort().join('-')}`
-      const channel = supabase.channel(channelName, {
+      // Presence channel for online/offline
+      const presenceChannel = supabase.channel(`presence-${[user.id, userId].sort().join('-')}`, {
         config: { presence: { key: user.id } }
       })
-
-      const readPresenceState = (state) => {
-        const otherId = userIdRef.current
-        const entries = state[otherId]
-        if (entries && entries.length > 0) {
-          setIsOtherOnline(true)
-          // FIX: check ALL entries, not just [0], because Supabase accumulates them
-          setIsOtherTyping(entries.some(e => e.typing === true))
-        } else {
-          setIsOtherOnline(false)
-          setIsOtherTyping(false)
-        }
-      }
-
-      channel
+      presenceChannel
         .on('presence', { event: 'sync' }, () => {
-          readPresenceState(channel.presenceState())
+          const state = presenceChannel.presenceState()
+          setIsOtherOnline(!!state[userId])
         })
         .on('presence', { event: 'join' }, ({ key }) => {
-          if (key === userIdRef.current) {
-            setIsOtherOnline(true)
-          }
+          if (key === userId) setIsOtherOnline(true)
         })
         .on('presence', { event: 'leave' }, ({ key }) => {
-          if (key === userIdRef.current) {
+          if (key === userId) {
             setIsOtherOnline(false)
             setIsOtherTyping(false)
-            supabase
-              .from('profiles')
-              .select('last_seen')
-              .eq('id', userIdRef.current)
-              .single()
-              .then(({ data }) => {
-                if (data) setOtherUser(prev => ({ ...prev, last_seen: data.last_seen }))
-              })
+            supabase.from('profiles').select('last_seen').eq('id', userId).single().then(({ data }) => {
+              if (data) setOtherUser(prev => ({ ...prev, last_seen: data.last_seen }))
+            })
           }
         })
         .subscribe(async (status) => {
           if (status === 'SUBSCRIBED') {
-            await channel.track({ online_at: new Date().toISOString(), typing: false })
+            await presenceChannel.track({ online_at: new Date().toISOString() })
           }
         })
+      presenceChannelRef.current = presenceChannel
 
-      presenceChannelRef.current = channel
+      // Broadcast channel for typing — faster and no sync issues
+      const broadcastChannel = supabase.channel(`typing-${[user.id, userId].sort().join('-')}`)
+      broadcastChannel
+        .on('broadcast', { event: 'typing' }, ({ payload }) => {
+          if (payload.userId === userId) {
+            setIsOtherTyping(payload.typing)
+          }
+        })
+        .subscribe()
+      broadcastChannelRef.current = broadcastChannel
     }
-
     load()
 
     const interval = setInterval(() => {
       supabase.auth.getUser().then(({ data: { user } }) => {
-        if (user) {
-          supabase.from('profiles').update({ last_seen: new Date().toISOString() }).eq('id', user.id).then(() => {})
-        }
+        if (user) supabase.from('profiles').update({ last_seen: new Date().toISOString() }).eq('id', user.id).then(() => {})
       })
     }, 120000)
 
     return () => {
       clearInterval(interval)
       if (presenceChannelRef.current) supabase.removeChannel(presenceChannelRef.current)
+      if (broadcastChannelRef.current) supabase.removeChannel(broadcastChannelRef.current)
     }
   }, [userId])
 
@@ -155,11 +140,21 @@ export default function Chat() {
 
   const handleTyping = (e) => {
     setNewMessage(e.target.value)
-    if (!presenceChannelRef.current) return
-    presenceChannelRef.current.track({ online_at: new Date().toISOString(), typing: true })
+    if (!broadcastChannelRef.current || !currentUser) return
+
+    broadcastChannelRef.current.send({
+      type: 'broadcast',
+      event: 'typing',
+      payload: { typing: true, userId: currentUser.id }
+    })
+
     clearTimeout(typingTimeoutRef.current)
     typingTimeoutRef.current = setTimeout(() => {
-      presenceChannelRef.current?.track({ online_at: new Date().toISOString(), typing: false })
+      broadcastChannelRef.current?.send({
+        type: 'broadcast',
+        event: 'typing',
+        payload: { typing: false, userId: currentUser.id }
+      })
     }, 1500)
   }
 
@@ -167,8 +162,13 @@ export default function Chat() {
     if (!newMessage.trim()) return
     const content = newMessage.trim()
     setNewMessage('')
+
     clearTimeout(typingTimeoutRef.current)
-    presenceChannelRef.current?.track({ online_at: new Date().toISOString(), typing: false })
+    broadcastChannelRef.current?.send({
+      type: 'broadcast',
+      event: 'typing',
+      payload: { typing: false, userId: currentUser.id }
+    })
 
     const tempMsg = {
       id: `temp-${Date.now()}`,
@@ -246,7 +246,7 @@ export default function Chat() {
   const color = avatarColors[name.charCodeAt(0) % avatarColors.length]
 
   const getStatus = () => {
-    if (isOtherTyping) return { text: '✏️ typing...', color: '#a78bfa' }
+    if (isOtherTyping) return { text: '● typing...', color: '#a78bfa' }
     if (isOtherOnline) return { text: '● Online', color: '#4caf50' }
     return { text: formatLastSeen(otherUser?.last_seen), color: '#888' }
   }
@@ -264,8 +264,8 @@ export default function Chat() {
           </div>
         )}
         <div>
-          <p style={{ fontWeight: '600', margin: 0 }}>{name}</p>
-          <p style={{ fontSize: '0.8rem', color: status.color, margin: 0 }}>{status.text}</p>
+          <p style={{ fontWeight: '600' }}>{name}</p>
+          <p style={{ fontSize: '0.8rem', color: status.color }}>{status.text}</p>
         </div>
       </div>
 
@@ -299,10 +299,7 @@ export default function Chat() {
                 {renderMessage(msg)}
               </div>
               {isMine && isHovered && !isTemp && (
-                <button
-                  onClick={() => deleteMessage(msg.id)}
-                  style={{ background: 'rgba(239,68,68,0.15)', border: '1px solid rgba(239,68,68,0.2)', color: '#ef4444', borderRadius: '6px', padding: '0.25rem 0.5rem', cursor: 'pointer', fontSize: '0.75rem', flexShrink: 0 }}
-                >
+                <button onClick={() => deleteMessage(msg.id)} style={{ background: 'rgba(239,68,68,0.15)', border: '1px solid rgba(239,68,68,0.2)', color: '#ef4444', borderRadius: '6px', padding: '0.25rem 0.5rem', cursor: 'pointer', fontSize: '0.75rem', flexShrink: 0 }}>
                   🗑️
                 </button>
               )}
@@ -312,9 +309,9 @@ export default function Chat() {
 
         {isOtherTyping && (
           <div style={{ alignSelf: 'flex-start', background: 'rgba(255,255,255,0.08)', padding: '0.65rem 1rem', borderRadius: '18px 18px 18px 4px', display: 'flex', gap: '4px', alignItems: 'center' }}>
-            <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#a78bfa', display: 'inline-block', animation: 'bounce 1s infinite' }} />
-            <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#a78bfa', display: 'inline-block', animation: 'bounce 1s infinite 0.2s' }} />
-            <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#a78bfa', display: 'inline-block', animation: 'bounce 1s infinite 0.4s' }} />
+            <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#a78bfa', animation: 'bounce 1s infinite' }} />
+            <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#a78bfa', animation: 'bounce 1s infinite 0.2s' }} />
+            <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#a78bfa', animation: 'bounce 1s infinite 0.4s' }} />
           </div>
         )}
         <div ref={bottomRef} />
@@ -322,11 +319,7 @@ export default function Chat() {
 
       <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
         <input type="file" accept="image/*" ref={fileInputRef} onChange={sendImage} style={{ display: 'none' }} />
-        <button
-          onClick={() => fileInputRef.current.click()}
-          disabled={uploading}
-          style={{ padding: '0.85rem', background: 'rgba(255,255,255,0.05)', color: uploading ? '#555' : '#a78bfa', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '10px', cursor: uploading ? 'default' : 'pointer', fontSize: '1.2rem', lineHeight: 1 }}
-        >
+        <button onClick={() => fileInputRef.current.click()} disabled={uploading} style={{ padding: '0.85rem', background: 'rgba(255,255,255,0.05)', color: uploading ? '#555' : '#a78bfa', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '10px', cursor: uploading ? 'default' : 'pointer', fontSize: '1.2rem', lineHeight: 1 }}>
           {uploading ? '⏳' : '📷'}
         </button>
         <input
@@ -337,10 +330,7 @@ export default function Chat() {
           onKeyDown={e => e.key === 'Enter' && sendMessage()}
           style={{ flex: 1, padding: '0.85rem 1rem', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.05)', color: 'white', fontFamily: 'Inter, sans-serif', fontSize: '0.95rem', outline: 'none' }}
         />
-        <button
-          onClick={sendMessage}
-          style={{ padding: '0.85rem 1.5rem', background: 'linear-gradient(135deg, #6c63ff, #a78bfa)', color: 'white', border: 'none', borderRadius: '10px', cursor: 'pointer', fontFamily: 'Inter, sans-serif', fontWeight: '600' }}
-        >
+        <button onClick={sendMessage} style={{ padding: '0.85rem 1.5rem', background: 'linear-gradient(135deg, #6c63ff, #a78bfa)', color: 'white', border: 'none', borderRadius: '10px', cursor: 'pointer', fontFamily: 'Inter, sans-serif', fontWeight: '600' }}>
           Send
         </button>
       </div>
