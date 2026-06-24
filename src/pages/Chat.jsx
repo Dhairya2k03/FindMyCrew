@@ -63,12 +63,12 @@ export default function Chat() {
       })
 
       const readPresenceState = (state) => {
-        console.log('presence state:', JSON.stringify(state)) // add this
         const otherId = userIdRef.current
         const entries = state[otherId]
         if (entries && entries.length > 0) {
           setIsOtherOnline(true)
-          setIsOtherTyping(entries[0]?.typing === true)
+          // FIX: check ALL entries, not just [0], because Supabase accumulates them
+          setIsOtherTyping(entries.some(e => e.typing === true))
         } else {
           setIsOtherOnline(false)
           setIsOtherTyping(false)
