@@ -63,6 +63,7 @@ export default function Chat() {
       })
 
       const readPresenceState = (state) => {
+        console.log('presence state:', JSON.stringify(state)) // add this
         const otherId = userIdRef.current
         const entries = state[otherId]
         if (entries && entries.length > 0) {
