@@ -13,9 +13,12 @@ const formatLastSeen = (date) => {
   return `Last seen ${d.toLocaleDateString()}`
 }
 
+const EMOJI_OPTIONS = ['❤️', '😂', '😮', '😢', '👍', '🔥']
+
 export default function Chat() {
   const { userId } = useParams()
   const [messages, setMessages] = useState([])
+  const [reactions, setReactions] = useState({}) // { messageId: [{emoji, user_id}] }
   const [newMessage, setNewMessage] = useState('')
   const [currentUser, setCurrentUser] = useState(null)
   const [otherUser, setOtherUser] = useState(null)
@@ -23,12 +26,14 @@ export default function Chat() {
   const [isOtherOnline, setIsOtherOnline] = useState(false)
   const [isOtherTyping, setIsOtherTyping] = useState(false)
   const [hoveredMsg, setHoveredMsg] = useState(null)
+  const [emojiPickerMsg, setEmojiPickerMsg] = useState(null)
   const bottomRef = useRef(null)
   const fileInputRef = useRef(null)
   const presenceChannelRef = useRef(null)
   const broadcastChannelRef = useRef(null)
   const typingTimeoutRef = useRef(null)
   const userIdRef = useRef(userId)
+  const currentUserRef = useRef(null)
 
   useEffect(() => { userIdRef.current = userId }, [userId])
 
@@ -36,6 +41,7 @@ export default function Chat() {
     const load = async () => {
       const { data: { user } } = await supabase.auth.getUser()
       setCurrentUser(user)
+      currentUserRef.current = user
 
       supabase.from('profiles').update({ last_seen: new Date().toISOString() }).eq('id', user.id).then(() => {})
 
@@ -47,6 +53,23 @@ export default function Chat() {
         .order('created_at', { ascending: true })
       setMessages(msgs || [])
 
+      // Load reactions for these messages
+      if (msgs && msgs.length > 0) {
+        const msgIds = msgs.map(m => m.id)
+        const { data: rxns } = await supabase
+          .from('message_reactions')
+          .select('*')
+          .in('message_id', msgIds)
+        if (rxns) {
+          const grouped = {}
+          rxns.forEach(r => {
+            if (!grouped[r.message_id]) grouped[r.message_id] = []
+            grouped[r.message_id].push(r)
+          })
+          setReactions(grouped)
+        }
+      }
+
       supabase.from('messages')
         .update({ read_at: new Date().toISOString() })
         .eq('receiver_id', user.id)
@@ -54,7 +77,6 @@ export default function Chat() {
         .is('read_at', null)
         .then(() => {})
 
-      // Presence channel for online/offline
       const presenceChannel = supabase.channel(`presence-${[user.id, userId].sort().join('-')}`, {
         config: { presence: { key: user.id } }
       })
@@ -82,13 +104,10 @@ export default function Chat() {
         })
       presenceChannelRef.current = presenceChannel
 
-      // Broadcast channel for typing — faster and no sync issues
       const broadcastChannel = supabase.channel(`typing-${[user.id, userId].sort().join('-')}`)
       broadcastChannel
         .on('broadcast', { event: 'typing' }, ({ payload }) => {
-          if (payload.userId === userId) {
-            setIsOtherTyping(payload.typing)
-          }
+          if (payload.userId === userId) setIsOtherTyping(payload.typing)
         })
         .subscribe()
       broadcastChannelRef.current = broadcastChannel
@@ -110,7 +129,7 @@ export default function Chat() {
 
   useEffect(() => {
     if (!currentUser) return
-    const channel = supabase.channel('messages')
+    const channel = supabase.channel('messages-and-reactions')
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, payload => {
         const msg = payload.new
         if (
@@ -130,6 +149,22 @@ export default function Chat() {
       .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'messages' }, payload => {
         setMessages(prev => prev.filter(m => m.id !== payload.old.id))
       })
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'message_reactions' }, payload => {
+        const r = payload.new
+        setReactions(prev => {
+          const existing = prev[r.message_id] || []
+          const alreadyExists = existing.some(e => e.id === r.id)
+          if (alreadyExists) return prev
+          return { ...prev, [r.message_id]: [...existing, r] }
+        })
+      })
+      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'message_reactions' }, payload => {
+        const r = payload.old
+        setReactions(prev => {
+          const existing = prev[r.message_id] || []
+          return { ...prev, [r.message_id]: existing.filter(e => e.id !== r.id) }
+        })
+      })
       .subscribe()
     return () => supabase.removeChannel(channel)
   }, [currentUser, userId])
@@ -138,21 +173,24 @@ export default function Chat() {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, isOtherTyping])
 
+  // Close emoji picker when clicking outside
+  useEffect(() => {
+    const handler = () => setEmojiPickerMsg(null)
+    document.addEventListener('click', handler)
+    return () => document.removeEventListener('click', handler)
+  }, [])
+
   const handleTyping = (e) => {
     setNewMessage(e.target.value)
     if (!broadcastChannelRef.current || !currentUser) return
-
     broadcastChannelRef.current.send({
-      type: 'broadcast',
-      event: 'typing',
+      type: 'broadcast', event: 'typing',
       payload: { typing: true, userId: currentUser.id }
     })
-
     clearTimeout(typingTimeoutRef.current)
     typingTimeoutRef.current = setTimeout(() => {
       broadcastChannelRef.current?.send({
-        type: 'broadcast',
-        event: 'typing',
+        type: 'broadcast', event: 'typing',
         payload: { typing: false, userId: currentUser.id }
       })
     }, 1500)
@@ -162,14 +200,11 @@ export default function Chat() {
     if (!newMessage.trim()) return
     const content = newMessage.trim()
     setNewMessage('')
-
     clearTimeout(typingTimeoutRef.current)
     broadcastChannelRef.current?.send({
-      type: 'broadcast',
-      event: 'typing',
+      type: 'broadcast', event: 'typing',
       payload: { typing: false, userId: currentUser.id }
     })
-
     const tempMsg = {
       id: `temp-${Date.now()}`,
       sender_id: currentUser.id,
@@ -178,7 +213,6 @@ export default function Chat() {
       created_at: new Date()
     }
     setMessages(prev => [...prev, tempMsg])
-
     supabase.from('messages').insert({
       sender_id: currentUser.id,
       receiver_id: userId,
@@ -193,6 +227,48 @@ export default function Chat() {
     await supabase.from('messages').delete().eq('id', msgId)
   }
 
+  const toggleReaction = async (msgId, emoji) => {
+    if (!currentUser) return
+    const existing = (reactions[msgId] || []).find(r => r.user_id === currentUser.id && r.emoji === emoji)
+    if (existing) {
+      // Remove reaction
+      setReactions(prev => ({
+        ...prev,
+        [msgId]: (prev[msgId] || []).filter(r => r.id !== existing.id)
+      }))
+      await supabase.from('message_reactions').delete().eq('id', existing.id)
+    } else {
+      // Add reaction
+      const tempId = `temp-${Date.now()}`
+      setReactions(prev => ({
+        ...prev,
+        [msgId]: [...(prev[msgId] || []), { id: tempId, message_id: msgId, user_id: currentUser.id, emoji }]
+      }))
+      const { data } = await supabase.from('message_reactions').insert({
+        message_id: msgId,
+        user_id: currentUser.id,
+        emoji
+      }).select().single()
+      if (data) {
+        setReactions(prev => ({
+          ...prev,
+          [msgId]: (prev[msgId] || []).map(r => r.id === tempId ? data : r)
+        }))
+      }
+    }
+    setEmojiPickerMsg(null)
+  }
+
+  const getGroupedReactions = (msgId) => {
+    const rxns = reactions[msgId] || []
+    const grouped = {}
+    rxns.forEach(r => {
+      if (!grouped[r.emoji]) grouped[r.emoji] = []
+      grouped[r.emoji].push(r.user_id)
+    })
+    return grouped
+  }
+
   const sendImage = async (e) => {
     const file = e.target.files[0]
     if (!file) return
@@ -201,11 +277,7 @@ export default function Chat() {
     setUploading(true)
     const fileName = `${currentUser.id}-${Date.now()}-${file.name}`
     const { error: uploadError } = await supabase.storage.from('chat-images').upload(fileName, file)
-    if (uploadError) {
-      alert('Failed to upload image: ' + uploadError.message)
-      setUploading(false)
-      return
-    }
+    if (uploadError) { alert('Failed to upload image: ' + uploadError.message); setUploading(false); return }
     const { data: { publicUrl } } = supabase.storage.from('chat-images').getPublicUrl(fileName)
     const tempMsg = {
       id: `temp-${Date.now()}`,
@@ -255,6 +327,7 @@ export default function Chat() {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 64px)', maxWidth: '700px', margin: '0 auto', padding: '1.5rem' }}>
+      {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '1.5rem', padding: '1rem 1.5rem', background: 'rgba(255,255,255,0.03)', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.08)' }}>
         {otherUser?.avatar_url ? (
           <img src={otherUser.avatar_url} alt={name} style={{ width: '40px', height: '40px', borderRadius: '50%', objectFit: 'cover' }} />
@@ -264,11 +337,12 @@ export default function Chat() {
           </div>
         )}
         <div>
-          <p style={{ fontWeight: '600' }}>{name}</p>
-          <p style={{ fontSize: '0.8rem', color: status.color }}>{status.text}</p>
+          <p style={{ fontWeight: '600', margin: 0 }}>{name}</p>
+          <p style={{ fontSize: '0.8rem', color: status.color, margin: 0 }}>{status.text}</p>
         </div>
       </div>
 
+      {/* Messages */}
       <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '0.75rem', marginBottom: '1rem', padding: '0.5rem' }}>
         {messages.length === 0 && (
           <div style={{ textAlign: 'center', color: '#888', marginTop: '3rem' }}>
@@ -280,28 +354,115 @@ export default function Chat() {
           const isMine = msg.sender_id === currentUser?.id
           const isTemp = msg.id?.toString().startsWith('temp-')
           const isHovered = hoveredMsg === msg.id
+          const groupedRxns = getGroupedReactions(msg.id)
+          const hasReactions = Object.keys(groupedRxns).length > 0
+
           return (
             <div
               key={msg.id}
-              style={{ alignSelf: isMine ? 'flex-end' : 'flex-start', display: 'flex', flexDirection: isMine ? 'row-reverse' : 'row', alignItems: 'center', gap: '0.5rem', maxWidth: '75%' }}
+              style={{ alignSelf: isMine ? 'flex-end' : 'flex-start', display: 'flex', flexDirection: 'column', alignItems: isMine ? 'flex-end' : 'flex-start', maxWidth: '75%', position: 'relative' }}
               onMouseEnter={() => setHoveredMsg(msg.id)}
-              onMouseLeave={() => setHoveredMsg(null)}
+              onMouseLeave={() => { setHoveredMsg(null) }}
             >
-              <div style={{
-                background: msg.content?.startsWith('[image]') ? 'transparent' : isMine ? 'linear-gradient(135deg, #6c63ff, #a78bfa)' : 'rgba(255,255,255,0.08)',
-                color: 'white',
-                padding: msg.content?.startsWith('[image]') ? '0' : '0.65rem 1rem',
-                borderRadius: isMine ? '18px 18px 4px 18px' : '18px 18px 18px 4px',
-                fontSize: '0.95rem',
-                lineHeight: 1.4,
-                opacity: isTemp ? 0.7 : 1
-              }}>
-                {renderMessage(msg)}
+              <div style={{ display: 'flex', flexDirection: isMine ? 'row-reverse' : 'row', alignItems: 'center', gap: '0.5rem' }}>
+                <div style={{
+                  background: msg.content?.startsWith('[image]') ? 'transparent' : isMine ? 'linear-gradient(135deg, #6c63ff, #a78bfa)' : 'rgba(255,255,255,0.08)',
+                  color: 'white',
+                  padding: msg.content?.startsWith('[image]') ? '0' : '0.65rem 1rem',
+                  borderRadius: isMine ? '18px 18px 4px 18px' : '18px 18px 18px 4px',
+                  fontSize: '0.95rem',
+                  lineHeight: 1.4,
+                  opacity: isTemp ? 0.7 : 1
+                }}>
+                  {renderMessage(msg)}
+                </div>
+
+                {/* Action buttons on hover */}
+                {!isTemp && isHovered && (
+                  <div style={{ display: 'flex', gap: '0.25rem', alignItems: 'center' }}>
+                    {/* Emoji reaction button */}
+                    <div style={{ position: 'relative' }}>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); setEmojiPickerMsg(emojiPickerMsg === msg.id ? null : msg.id) }}
+                        style={{ background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.12)', color: 'white', borderRadius: '6px', padding: '0.25rem 0.4rem', cursor: 'pointer', fontSize: '0.8rem' }}
+                      >
+                        😊
+                      </button>
+                      {/* Emoji picker */}
+                      {emojiPickerMsg === msg.id && (
+                        <div
+                          onClick={e => e.stopPropagation()}
+                          style={{
+                            position: 'absolute',
+                            bottom: '110%',
+                            [isMine ? 'right' : 'left']: 0,
+                            background: '#1e1e2e',
+                            border: '1px solid rgba(255,255,255,0.12)',
+                            borderRadius: '12px',
+                            padding: '0.5rem',
+                            display: 'flex',
+                            gap: '0.25rem',
+                            zIndex: 50,
+                            boxShadow: '0 4px 20px rgba(0,0,0,0.4)'
+                          }}
+                        >
+                          {EMOJI_OPTIONS.map(emoji => (
+                            <button
+                              key={emoji}
+                              onClick={() => toggleReaction(msg.id, emoji)}
+                              style={{
+                                background: (reactions[msg.id] || []).some(r => r.emoji === emoji && r.user_id === currentUser?.id) ? 'rgba(108,99,255,0.3)' : 'transparent',
+                                border: 'none',
+                                borderRadius: '6px',
+                                padding: '0.3rem',
+                                cursor: 'pointer',
+                                fontSize: '1.2rem',
+                                transition: 'background 0.15s'
+                              }}
+                            >
+                              {emoji}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                    {/* Delete button */}
+                    {isMine && (
+                      <button
+                        onClick={() => deleteMessage(msg.id)}
+                        style={{ background: 'rgba(239,68,68,0.15)', border: '1px solid rgba(239,68,68,0.2)', color: '#ef4444', borderRadius: '6px', padding: '0.25rem 0.5rem', cursor: 'pointer', fontSize: '0.75rem' }}
+                      >
+                        🗑️
+                      </button>
+                    )}
+                  </div>
+                )}
               </div>
-              {isMine && isHovered && !isTemp && (
-                <button onClick={() => deleteMessage(msg.id)} style={{ background: 'rgba(239,68,68,0.15)', border: '1px solid rgba(239,68,68,0.2)', color: '#ef4444', borderRadius: '6px', padding: '0.25rem 0.5rem', cursor: 'pointer', fontSize: '0.75rem', flexShrink: 0 }}>
-                  🗑️
-                </button>
+
+              {/* Reaction bubbles */}
+              {hasReactions && (
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.25rem', marginTop: '0.3rem' }}>
+                  {Object.entries(groupedRxns).map(([emoji, userIds]) => (
+                    <button
+                      key={emoji}
+                      onClick={() => toggleReaction(msg.id, emoji)}
+                      style={{
+                        background: userIds.includes(currentUser?.id) ? 'rgba(108,99,255,0.25)' : 'rgba(255,255,255,0.07)',
+                        border: userIds.includes(currentUser?.id) ? '1px solid rgba(108,99,255,0.4)' : '1px solid rgba(255,255,255,0.1)',
+                        borderRadius: '100px',
+                        padding: '0.15rem 0.5rem',
+                        cursor: 'pointer',
+                        fontSize: '0.8rem',
+                        color: 'white',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '0.25rem'
+                      }}
+                    >
+                      {emoji} <span style={{ fontSize: '0.7rem', opacity: 0.8 }}>{userIds.length}</span>
+                    </button>
+                  ))}
+                </div>
               )}
             </div>
           )
@@ -317,6 +478,7 @@ export default function Chat() {
         <div ref={bottomRef} />
       </div>
 
+      {/* Input bar */}
       <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
         <input type="file" accept="image/*" ref={fileInputRef} onChange={sendImage} style={{ display: 'none' }} />
         <button onClick={() => fileInputRef.current.click()} disabled={uploading} style={{ padding: '0.85rem', background: 'rgba(255,255,255,0.05)', color: uploading ? '#555' : '#a78bfa', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '10px', cursor: uploading ? 'default' : 'pointer', fontSize: '1.2rem', lineHeight: 1 }}>
