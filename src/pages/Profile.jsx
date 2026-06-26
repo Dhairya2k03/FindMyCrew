@@ -23,6 +23,10 @@ export default function Profile() {
   const [searching, setSearching] = useState(false)
   const [avatarUrl, setAvatarUrl] = useState(null)
   const [uploadingAvatar, setUploadingAvatar] = useState(false)
+  const [steamVerified, setSteamVerified] = useState(false)
+  const [discordVerified, setDiscordVerified] = useState(false)
+  const [xboxVerified, setXboxVerified] = useState(false)
+  const [playstationVerified, setPlaystationVerified] = useState(false)
   const navigate = useNavigate()
   const searchTimeout = useRef(null)
   const avatarInputRef = useRef(null)
@@ -37,6 +41,11 @@ export default function Profile() {
         setSelectedPlatforms(data.platforms || [])
         setSelectedGames(data.hobbies || [])
         setAvatarUrl(data.avatar_url || null)
+
+        setSteamVerified(data.steam_verified || false)
+        setDiscordVerified(data.discord_verified || false)
+        setXboxVerified(data.xbox_verified || false)
+        setPlaystationVerified(data.playstation_verified || false)
       }
     }
     load()
@@ -124,6 +133,12 @@ export default function Profile() {
       username,
       platforms: selectedPlatforms,
       hobbies: selectedGames,
+
+      steam_verified: steamVerified,
+      discord_verified: discordVerified,
+      xbox_verified: xboxVerified,
+      playstation_verified: playstationVerified,
+
       updated_at: new Date()
     })
     if (error) alert(error.message)
@@ -260,6 +275,121 @@ export default function Profile() {
           </div>
         </div>
       )}
+      {/* Connected Accounts */}
+      <div
+        style={{
+          marginBottom: '2rem',
+          padding: '1.5rem',
+          background: 'rgba(255,255,255,0.03)',
+          borderRadius: '16px',
+          border: '1px solid rgba(255,255,255,0.08)'
+        }}
+      >
+        <h3
+          style={{
+            marginBottom: '1rem',
+            fontSize: '1rem',
+            fontWeight: '600',
+            color: 'white'
+          }}
+        >
+          Connected Accounts
+        </h3>
+
+        <div
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '12px'
+          }}
+        >
+
+          <button
+            onClick={() => setSteamVerified(!steamVerified)}
+            style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              padding: '14px',
+              borderRadius: '10px',
+              border: 'none',
+              cursor: 'pointer',
+              background: steamVerified
+                ? 'linear-gradient(135deg,#16a34a,#22c55e)'
+                : 'rgba(255,255,255,0.05)',
+              color: 'white',
+              fontSize: '0.95rem'
+            }}
+          >
+            <span>🖥️ Steam</span>
+            <span>{steamVerified ? '✔ Connected' : 'Connect'}</span>
+          </button>
+
+          <button
+            onClick={() => setDiscordVerified(!discordVerified)}
+            style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              padding: '14px',
+              borderRadius: '10px',
+              border: 'none',
+              cursor: 'pointer',
+              background: discordVerified
+                ? '#5865F2'
+                : 'rgba(255,255,255,0.05)',
+              color: 'white',
+              fontSize: '0.95rem'
+            }}
+          >
+            <span>💬 Discord</span>
+            <span>{discordVerified ? '✔ Connected' : 'Connect'}</span>
+          </button>
+
+          <button
+            onClick={() => setXboxVerified(!xboxVerified)}
+            style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              padding: '14px',
+              borderRadius: '10px',
+              border: 'none',
+              cursor: 'pointer',
+              background: xboxVerified
+                ? '#107C10'
+                : 'rgba(255,255,255,0.05)',
+              color: 'white',
+              fontSize: '0.95rem'
+            }}
+          >
+            <span>🟢 Xbox</span>
+            <span>{xboxVerified ? '✔ Connected' : 'Connect'}</span>
+          </button>
+
+          <button
+            onClick={() => setPlaystationVerified(!playstationVerified)}
+            style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              padding: '14px',
+              borderRadius: '10px',
+              border: 'none',
+              cursor: 'pointer',
+              background: playstationVerified
+                ? '#003791'
+                : 'rgba(255,255,255,0.05)',
+              color: 'white',
+              fontSize: '0.95rem'
+            }}
+          >
+            <span>🎮 PlayStation</span>
+            <span>{playstationVerified ? '✔ Connected' : 'Connect'}</span>
+          </button>
+
+        </div>
+      </div>
 
       <button
         onClick={saveProfile}
