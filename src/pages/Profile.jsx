@@ -16,6 +16,8 @@ const RAWG_KEY = import.meta.env.VITE_RAWG_API_KEY
 export default function Profile() {
   const [user, setUser] = useState(null)
   const [username, setUsername] = useState('')
+  const [bio, setBio] = useState('')
+  const [discordUsername, setDiscordUsername] = useState('')
   const [selectedPlatforms, setSelectedPlatforms] = useState([])
   const [selectedGames, setSelectedGames] = useState([])
   const [searchQuery, setSearchQuery] = useState('')
@@ -23,10 +25,6 @@ export default function Profile() {
   const [searching, setSearching] = useState(false)
   const [avatarUrl, setAvatarUrl] = useState(null)
   const [uploadingAvatar, setUploadingAvatar] = useState(false)
-  const [steamVerified, setSteamVerified] = useState(false)
-  const [discordVerified, setDiscordVerified] = useState(false)
-  const [xboxVerified, setXboxVerified] = useState(false)
-  const [playstationVerified, setPlaystationVerified] = useState(false)
   const navigate = useNavigate()
   const searchTimeout = useRef(null)
   const avatarInputRef = useRef(null)
@@ -38,14 +36,11 @@ export default function Profile() {
       const { data } = await supabase.from('profiles').select('*').eq('id', user.id).single()
       if (data) {
         setUsername(data.username || '')
+        setBio(data.bio || '')
+        setDiscordUsername(data.discord_username || '')
         setSelectedPlatforms(data.platforms || [])
         setSelectedGames(data.hobbies || [])
         setAvatarUrl(data.avatar_url || null)
-
-        setSteamVerified(data.steam_verified || false)
-        setDiscordVerified(data.discord_verified || false)
-        setXboxVerified(data.xbox_verified || false)
-        setPlaystationVerified(data.playstation_verified || false)
       }
     }
     load()
@@ -55,66 +50,44 @@ export default function Profile() {
     const file = e.target.files[0]
     if (!file) return
     if (file.size > 10 * 1024 * 1024) return alert('Image must be under 10MB')
-
     setUploadingAvatar(true)
-
     try {
       const ext = file.name.split('.').pop().toLowerCase()
       const contentType = file.type || 'image/jpeg'
       const fileName = `${user.id}/avatar-${Date.now()}.${ext}`
-
       const { error: uploadError } = await supabase.storage
         .from('avatars')
         .upload(fileName, file, { upsert: true, contentType })
-
-      if (uploadError) {
-        alert('Failed to upload: ' + uploadError.message)
-        setUploadingAvatar(false)
-        return
-      }
-
+      if (uploadError) { alert('Failed to upload: ' + uploadError.message); setUploadingAvatar(false); return }
       const { data: { publicUrl } } = supabase.storage.from('avatars').getPublicUrl(fileName)
       await supabase.from('profiles').update({ avatar_url: publicUrl }).eq('id', user.id)
       setAvatarUrl(publicUrl)
     } catch (err) {
       alert('Failed to upload: ' + err.message)
     }
-
     setUploadingAvatar(false)
   }
 
   const togglePlatform = (id) => {
-    setSelectedPlatforms(prev =>
-      prev.includes(id) ? prev.filter(p => p !== id) : [...prev, id]
-    )
+    setSelectedPlatforms(prev => prev.includes(id) ? prev.filter(p => p !== id) : [...prev, id])
     setSearchResults([])
     setSearchQuery('')
   }
 
   const toggleGame = (game) => {
-    setSelectedGames(prev =>
-      prev.includes(game) ? prev.filter(g => g !== game) : [...prev, game]
-    )
+    setSelectedGames(prev => prev.includes(game) ? prev.filter(g => g !== game) : [...prev, game])
   }
 
   const searchGames = async (query) => {
-    if (!query.trim() || selectedPlatforms.length === 0) {
-      setSearchResults([])
-      return
-    }
+    if (!query.trim() || selectedPlatforms.length === 0) { setSearchResults([]); return }
     setSearching(true)
-    const platformIds = selectedPlatforms
-      .map(p => PLATFORMS.find(pl => pl.id === p)?.rawgId)
-      .filter(Boolean)
-      .join(',')
+    const platformIds = selectedPlatforms.map(p => PLATFORMS.find(pl => pl.id === p)?.rawgId).filter(Boolean).join(',')
     const url = `https://api.rawg.io/api/games?key=${RAWG_KEY}&search=${encodeURIComponent(query)}&platforms=${platformIds}&page_size=8`
     try {
       const res = await fetch(url)
       const data = await res.json()
       setSearchResults(data.results || [])
-    } catch (e) {
-      console.error('RAWG error:', e)
-    }
+    } catch (e) { console.error('RAWG error:', e) }
     setSearching(false)
   }
 
@@ -131,14 +104,10 @@ export default function Profile() {
       id: user.id,
       email: user.email,
       username,
+      bio,
+      discord_username: discordUsername,
       platforms: selectedPlatforms,
       hobbies: selectedGames,
-
-      steam_verified: steamVerified,
-      discord_verified: discordVerified,
-      xbox_verified: xboxVerified,
-      playstation_verified: playstationVerified,
-
       updated_at: new Date()
     })
     if (error) alert(error.message)
@@ -148,6 +117,9 @@ export default function Profile() {
   const avatarColors = ['#6c63ff', '#f59e0b', '#10b981', '#ef4444', '#3b82f6', '#ec4899']
   const name = username || user?.email?.split('@')[0] || 'U'
   const color = avatarColors[name.charCodeAt(0) % avatarColors.length]
+
+  const inputStyle = { padding: '0.85rem 1rem', width: '100%', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.1)', marginBottom: '2rem', fontSize: '1rem', background: 'rgba(255,255,255,0.05)', color: 'white', fontFamily: 'Inter, sans-serif', outline: 'none', boxSizing: 'border-box' }
+  const labelStyle = { display: 'block', marginBottom: '0.5rem', fontWeight: '500', color: '#aaa', fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '0.05em' }
 
   return (
     <div style={{ padding: '2rem', maxWidth: '650px', margin: '0 auto' }}>
@@ -163,11 +135,7 @@ export default function Profile() {
               {name[0]?.toUpperCase()}
             </div>
           )}
-          <button
-            onClick={() => avatarInputRef.current.click()}
-            disabled={uploadingAvatar}
-            style={{ position: 'absolute', bottom: '-4px', right: '-4px', width: '24px', height: '24px', borderRadius: '50%', background: '#6c63ff', border: '2px solid #0f0f1a', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.7rem' }}
-          >
+          <button onClick={() => avatarInputRef.current.click()} disabled={uploadingAvatar} style={{ position: 'absolute', bottom: '-4px', right: '-4px', width: '24px', height: '24px', borderRadius: '50%', background: '#6c63ff', border: '2px solid #0f0f1a', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.7rem' }}>
             {uploadingAvatar ? '⏳' : '✏️'}
           </button>
           <input type="file" accept="image/*" ref={avatarInputRef} onChange={uploadAvatar} style={{ display: 'none' }} />
@@ -182,35 +150,39 @@ export default function Profile() {
       </div>
 
       {/* Username */}
-      <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: '500', color: '#aaa', fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Username</label>
-      <input
-        type="text"
-        placeholder="e.g. xXGamer42Xx"
-        value={username}
-        onChange={e => setUsername(e.target.value)}
-        style={{ padding: '0.85rem 1rem', width: '100%', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.1)', marginBottom: '2rem', fontSize: '1rem', background: 'rgba(255,255,255,0.05)', color: 'white', fontFamily: 'Inter, sans-serif', outline: 'none' }}
+      <label style={labelStyle}>Username</label>
+      <input type="text" placeholder="e.g. xXGamer42Xx" value={username} onChange={e => setUsername(e.target.value)} style={inputStyle} />
+
+      {/* Bio */}
+      <label style={labelStyle}>Bio</label>
+      <textarea
+        placeholder="Tell others about yourself... e.g. Competitive FPS player, love co-op games"
+        value={bio}
+        onChange={e => setBio(e.target.value)}
+        maxLength={150}
+        rows={3}
+        style={{ ...inputStyle, resize: 'none', lineHeight: 1.5 }}
       />
+      <p style={{ color: '#555', fontSize: '0.75rem', marginTop: '-1.5rem', marginBottom: '2rem', textAlign: 'right' }}>{bio.length}/150</p>
+
+      {/* Discord */}
+      <label style={labelStyle}>Discord Username</label>
+      <div style={{ position: 'relative', marginBottom: '2rem' }}>
+        <span style={{ position: 'absolute', left: '1rem', top: '50%', transform: 'translateY(-50%)', color: '#5865F2', fontSize: '1rem' }}>💬</span>
+        <input
+          type="text"
+          placeholder="e.g. gamer#1234 or just gamer"
+          value={discordUsername}
+          onChange={e => setDiscordUsername(e.target.value)}
+          style={{ ...inputStyle, paddingLeft: '2.5rem', marginBottom: 0 }}
+        />
+      </div>
 
       {/* Platforms */}
-      <label style={{ display: 'block', marginBottom: '1rem', fontWeight: '500', color: '#aaa', fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Your Platforms</label>
+      <label style={labelStyle}>Your Platforms</label>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '2rem' }}>
         {PLATFORMS.map(({ id, label, icon }) => (
-          <button
-            key={id}
-            onClick={() => togglePlatform(id)}
-            style={{
-              padding: '0.6rem 1.25rem',
-              background: selectedPlatforms.includes(id) ? 'linear-gradient(135deg, #6c63ff, #a78bfa)' : 'rgba(255,255,255,0.05)',
-              color: selectedPlatforms.includes(id) ? 'white' : '#888',
-              border: selectedPlatforms.includes(id) ? 'none' : '1px solid rgba(255,255,255,0.1)',
-              borderRadius: '100px',
-              cursor: 'pointer',
-              fontSize: '0.9rem',
-              fontWeight: '500',
-              fontFamily: 'Inter, sans-serif',
-              boxShadow: selectedPlatforms.includes(id) ? '0 0 20px rgba(108, 99, 255, 0.3)' : 'none'
-            }}
-          >
+          <button key={id} onClick={() => togglePlatform(id)} style={{ padding: '0.6rem 1.25rem', background: selectedPlatforms.includes(id) ? 'linear-gradient(135deg, #6c63ff, #a78bfa)' : 'rgba(255,255,255,0.05)', color: selectedPlatforms.includes(id) ? 'white' : '#888', border: selectedPlatforms.includes(id) ? 'none' : '1px solid rgba(255,255,255,0.1)', borderRadius: '100px', cursor: 'pointer', fontSize: '0.9rem', fontWeight: '500', fontFamily: 'Inter, sans-serif', boxShadow: selectedPlatforms.includes(id) ? '0 0 20px rgba(108, 99, 255, 0.3)' : 'none' }}>
             {icon} {label}
           </button>
         ))}
@@ -219,38 +191,22 @@ export default function Profile() {
       {/* Game Search */}
       {selectedPlatforms.length > 0 && (
         <>
-          <label style={{ display: 'block', marginBottom: '1rem', fontWeight: '500', color: '#aaa', fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-            Search Games
-          </label>
+          <label style={labelStyle}>Search Games</label>
           <div style={{ position: 'relative', marginBottom: '1.5rem' }}>
-            <input
-              type="text"
-              placeholder={`Search games on ${selectedPlatforms.map(p => PLATFORMS.find(pl => pl.id === p)?.label).join(', ')}...`}
-              value={searchQuery}
-              onChange={handleSearchChange}
-              style={{ padding: '0.85rem 1rem', width: '100%', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.1)', fontSize: '1rem', background: 'rgba(255,255,255,0.05)', color: 'white', fontFamily: 'Inter, sans-serif', outline: 'none' }}
-            />
+            <input type="text" placeholder={`Search games on ${selectedPlatforms.map(p => PLATFORMS.find(pl => pl.id === p)?.label).join(', ')}...`} value={searchQuery} onChange={handleSearchChange} style={{ ...inputStyle, marginBottom: 0 }} />
             {searching && <p style={{ color: '#888', fontSize: '0.85rem', marginTop: '0.5rem' }}>Searching...</p>}
             {searchResults.length > 0 && (
               <div style={{ marginTop: '0.75rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
                 {searchResults.map(game => {
                   const isSelected = selectedGames.includes(game.name)
                   return (
-                    <div
-                      key={game.id}
-                      onClick={() => toggleGame(game.name)}
-                      style={{ display: 'flex', alignItems: 'center', gap: '1rem', padding: '0.75rem 1rem', background: isSelected ? 'rgba(108,99,255,0.15)' : 'rgba(255,255,255,0.03)', border: isSelected ? '1px solid rgba(108,99,255,0.4)' : '1px solid rgba(255,255,255,0.08)', borderRadius: '10px', cursor: 'pointer', transition: 'all 0.2s' }}
-                    >
-                      {game.background_image && (
-                        <img src={game.background_image} alt={game.name} style={{ width: '48px', height: '48px', borderRadius: '8px', objectFit: 'cover', flexShrink: 0 }} />
-                      )}
+                    <div key={game.id} onClick={() => toggleGame(game.name)} style={{ display: 'flex', alignItems: 'center', gap: '1rem', padding: '0.75rem 1rem', background: isSelected ? 'rgba(108,99,255,0.15)' : 'rgba(255,255,255,0.03)', border: isSelected ? '1px solid rgba(108,99,255,0.4)' : '1px solid rgba(255,255,255,0.08)', borderRadius: '10px', cursor: 'pointer', transition: 'all 0.2s' }}>
+                      {game.background_image && <img src={game.background_image} alt={game.name} style={{ width: '48px', height: '48px', borderRadius: '8px', objectFit: 'cover', flexShrink: 0 }} />}
                       <div style={{ flex: 1 }}>
                         <p style={{ fontWeight: '600', fontSize: '0.95rem', marginBottom: '0.2rem' }}>{game.name}</p>
                         <p style={{ color: '#888', fontSize: '0.8rem' }}>{game.platforms?.slice(0, 3).map(p => p.platform.name).join(', ')}</p>
                       </div>
-                      <span style={{ color: isSelected ? '#a78bfa' : '#555', fontWeight: '600', fontSize: '0.85rem' }}>
-                        {isSelected ? '✓ Added' : '+ Add'}
-                      </span>
+                      <span style={{ color: isSelected ? '#a78bfa' : '#555', fontWeight: '600', fontSize: '0.85rem' }}>{isSelected ? '✓ Added' : '+ Add'}</span>
                     </div>
                   )
                 })}
@@ -263,9 +219,7 @@ export default function Profile() {
       {/* Selected Games */}
       {selectedGames.length > 0 && (
         <div style={{ marginBottom: '2rem', padding: '1rem 1.5rem', background: 'rgba(108,99,255,0.08)', borderRadius: '12px', border: '1px solid rgba(108,99,255,0.2)' }}>
-          <p style={{ color: '#a78bfa', fontWeight: '600', marginBottom: '0.75rem', fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-            Selected Games ({selectedGames.length})
-          </p>
+          <p style={{ color: '#a78bfa', fontWeight: '600', marginBottom: '0.75rem', fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Selected Games ({selectedGames.length})</p>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
             {selectedGames.map(game => (
               <span key={game} onClick={() => toggleGame(game)} style={{ background: 'rgba(108,99,255,0.2)', color: '#a78bfa', padding: '3px 10px', borderRadius: '100px', fontSize: '0.8rem', border: '1px solid rgba(108,99,255,0.3)', cursor: 'pointer' }}>
@@ -275,126 +229,8 @@ export default function Profile() {
           </div>
         </div>
       )}
-      {/* Connected Accounts */}
-      <div
-        style={{
-          marginBottom: '2rem',
-          padding: '1.5rem',
-          background: 'rgba(255,255,255,0.03)',
-          borderRadius: '16px',
-          border: '1px solid rgba(255,255,255,0.08)'
-        }}
-      >
-        <h3
-          style={{
-            marginBottom: '1rem',
-            fontSize: '1rem',
-            fontWeight: '600',
-            color: 'white'
-          }}
-        >
-          Connected Accounts
-        </h3>
 
-        <div
-          style={{
-            display: 'flex',
-            flexDirection: 'column',
-            gap: '12px'
-          }}
-        >
-
-          <button
-            onClick={() => setSteamVerified(!steamVerified)}
-            style={{
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              padding: '14px',
-              borderRadius: '10px',
-              border: 'none',
-              cursor: 'pointer',
-              background: steamVerified
-                ? 'linear-gradient(135deg,#16a34a,#22c55e)'
-                : 'rgba(255,255,255,0.05)',
-              color: 'white',
-              fontSize: '0.95rem'
-            }}
-          >
-            <span>🖥️ Steam</span>
-            <span>{steamVerified ? '✔ Connected' : 'Connect'}</span>
-          </button>
-
-          <button
-            onClick={() => setDiscordVerified(!discordVerified)}
-            style={{
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              padding: '14px',
-              borderRadius: '10px',
-              border: 'none',
-              cursor: 'pointer',
-              background: discordVerified
-                ? '#5865F2'
-                : 'rgba(255,255,255,0.05)',
-              color: 'white',
-              fontSize: '0.95rem'
-            }}
-          >
-            <span>💬 Discord</span>
-            <span>{discordVerified ? '✔ Connected' : 'Connect'}</span>
-          </button>
-
-          <button
-            onClick={() => setXboxVerified(!xboxVerified)}
-            style={{
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              padding: '14px',
-              borderRadius: '10px',
-              border: 'none',
-              cursor: 'pointer',
-              background: xboxVerified
-                ? '#107C10'
-                : 'rgba(255,255,255,0.05)',
-              color: 'white',
-              fontSize: '0.95rem'
-            }}
-          >
-            <span>🟢 Xbox</span>
-            <span>{xboxVerified ? '✔ Connected' : 'Connect'}</span>
-          </button>
-
-          <button
-            onClick={() => setPlaystationVerified(!playstationVerified)}
-            style={{
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              padding: '14px',
-              borderRadius: '10px',
-              border: 'none',
-              cursor: 'pointer',
-              background: playstationVerified
-                ? '#003791'
-                : 'rgba(255,255,255,0.05)',
-              color: 'white',
-              fontSize: '0.95rem'
-            }}
-          >
-            <span>🎮 PlayStation</span>
-            <span>{playstationVerified ? '✔ Connected' : 'Connect'}</span>
-          </button>
-
-        </div>
-      </div>
-
-      <button
-        onClick={saveProfile}
-        style={{ padding: '0.85rem 2.5rem', background: 'linear-gradient(135deg, #6c63ff, #a78bfa)', color: 'white', border: 'none', borderRadius: '10px', fontSize: '1rem', fontWeight: '600', cursor: 'pointer', fontFamily: 'Inter, sans-serif', boxShadow: '0 0 30px rgba(108, 99, 255, 0.3)' }}
-      >
+      <button onClick={saveProfile} style={{ padding: '0.85rem 2.5rem', background: 'linear-gradient(135deg, #6c63ff, #a78bfa)', color: 'white', border: 'none', borderRadius: '10px', fontSize: '1rem', fontWeight: '600', cursor: 'pointer', fontFamily: 'Inter, sans-serif', boxShadow: '0 0 30px rgba(108, 99, 255, 0.3)' }}>
         Save & Set Game Levels →
       </button>
     </div>

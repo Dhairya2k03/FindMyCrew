@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { SkeletonProfile } from '../components/Skeleton'
 import { supabase } from '../lib/supabaseClient'
 
 const LEVEL_ICONS = { beginner: '🌱', intermediate: '⚡', pro: '🔥' }
@@ -19,29 +18,22 @@ export default function UserProfile() {
     const load = async () => {
       const { data: { user } } = await supabase.auth.getUser()
       setCurrentUser(user)
-
       const { data: profileData } = await supabase.from('profiles').select('*').eq('id', userId).single()
       setProfile(profileData)
-
       const { data: me } = await supabase.from('profiles').select('hobbies').eq('id', user.id).single()
       const mutual = (profileData?.hobbies || []).filter(h => (me?.hobbies || []).includes(h))
       setMutualGames(mutual)
-
       const { data: sent } = await supabase.from('connections').select('*').eq('sender_id', user.id).eq('receiver_id', userId).single()
       const { data: received } = await supabase.from('connections').select('*').eq('receiver_id', user.id).eq('sender_id', userId).single()
       if (sent) setConnectionStatus(sent.status)
       else if (received) setConnectionStatus(received.status)
-
       setLoading(false)
     }
     load()
   }, [userId])
 
   const sendRequest = async () => {
-    const { error } = await supabase.from('connections').insert({
-      sender_id: currentUser.id,
-      receiver_id: userId
-    })
+    const { error } = await supabase.from('connections').insert({ sender_id: currentUser.id, receiver_id: userId })
     if (error) alert(error.message)
     else setConnectionStatus('pending')
   }
@@ -72,8 +64,22 @@ export default function UserProfile() {
           </div>
         )}
         <h2 style={{ fontWeight: '700', fontSize: '1.5rem', marginBottom: '0.25rem' }}>{name}</h2>
+
+        {/* Bio */}
+        {profile?.bio && (
+          <p style={{ color: '#aaa', fontSize: '0.9rem', marginBottom: '1rem', lineHeight: 1.5, maxWidth: '400px', margin: '0 auto 1rem' }}>{profile.bio}</p>
+        )}
+
         {mutualGames.length > 0 && (
           <p style={{ color: '#a78bfa', fontSize: '0.85rem', marginBottom: '1rem' }}>🎮 {mutualGames.length} game{mutualGames.length > 1 ? 's' : ''} in common</p>
+        )}
+
+        {/* Discord */}
+        {profile?.discord_username && (
+          <div style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5rem', background: 'rgba(88,101,242,0.15)', border: '1px solid rgba(88,101,242,0.3)', borderRadius: '100px', padding: '0.3rem 0.9rem', marginBottom: '1rem' }}>
+            <span>💬</span>
+            <span style={{ color: '#a5b4fc', fontSize: '0.85rem', fontWeight: '600' }}>{profile.discord_username}</span>
+          </div>
         )}
 
         {/* Platforms */}
@@ -112,7 +118,7 @@ export default function UserProfile() {
 
       {/* Games & Levels */}
       {profile?.hobbies?.length > 0 && (
-        <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '20px', padding: '1.5rem', marginBottom: '1.5rem' }}>
+        <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '20px', padding: '1.5rem' }}>
           <h3 style={{ fontWeight: '700', marginBottom: '1rem', fontSize: '1rem', color: '#aaa', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Games</h3>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
             {profile.hobbies.map(game => {
@@ -133,9 +139,7 @@ export default function UserProfile() {
               )
             })}
           </div>
-          {mutualGames.length > 0 && (
-            <p style={{ color: '#666', fontSize: '0.75rem', marginTop: '0.75rem' }}>● Games you both play</p>
-          )}
+          {mutualGames.length > 0 && <p style={{ color: '#666', fontSize: '0.75rem', marginTop: '0.75rem' }}>● Games you both play</p>}
         </div>
       )}
     </div>
