@@ -2,6 +2,13 @@ import { useState, useEffect, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabaseClient'
 
+const ROLE_CONFIG = {
+  leader: { label: '👑 Leader', color: '#f59e0b' },
+  admin:  { label: '🛡️ Admin',  color: '#6c63ff' },
+  elder:  { label: '⚔️ Elder',  color: '#10b981' },
+  member: { label: 'Member',    color: '#888'    },
+}
+
 export default function GroupChat() {
   const { groupId } = useParams()
   const navigate = useNavigate()
@@ -11,8 +18,10 @@ export default function GroupChat() {
   const [pendingMembers, setPendingMembers] = useState([])
   const [newMessage, setNewMessage] = useState('')
   const [currentUser, setCurrentUser] = useState(null)
+  const [myRole, setMyRole] = useState('member') // leader | admin | elder | member
   const [profiles, setProfiles] = useState({})
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [roleMenuOpen, setRoleMenuOpen] = useState(null) // member id whose menu is open
   const bottomRef = useRef(null)
 
   useEffect(() => {
@@ -27,8 +36,18 @@ export default function GroupChat() {
       setMessages(msgs || [])
 
       const { data: allMembers } = await supabase.from('group_members').select('*').eq('group_id', groupId)
-      setMembers((allMembers || []).filter(m => m.status === 'accepted'))
-      setPendingMembers((allMembers || []).filter(m => m.status === 'pending'))
+      const accepted = (allMembers || []).filter(m => m.status === 'accepted')
+      const pending = (allMembers || []).filter(m => m.status === 'pending')
+      setMembers(accepted)
+      setPendingMembers(pending)
+
+      // Determine current user's role
+      if (groupData?.leader_id === user.id) {
+        setMyRole('leader')
+      } else {
+        const me = accepted.find(m => m.user_id === user.id)
+        setMyRole(me?.role || 'member')
+      }
 
       const memberIds = [...new Set([
         ...(allMembers || []).map(m => m.user_id),
@@ -62,6 +81,13 @@ export default function GroupChat() {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
 
+  // Close role menu on outside click
+  useEffect(() => {
+    const handler = () => setRoleMenuOpen(null)
+    document.addEventListener('click', handler)
+    return () => document.removeEventListener('click', handler)
+  }, [])
+
   const sendMessage = async () => {
     if (!newMessage.trim()) return
     const content = newMessage.trim()
@@ -86,7 +112,7 @@ export default function GroupChat() {
     await supabase.from('group_members').update({ status }).eq('id', memberId)
     if (status === 'accepted') {
       const member = pendingMembers.find(m => m.id === memberId)
-      setMembers(prev => [...prev, { ...member, status: 'accepted' }])
+      setMembers(prev => [...prev, { ...member, status: 'accepted', role: 'member' }])
     }
     setPendingMembers(prev => prev.filter(m => m.id !== memberId))
   }
@@ -94,6 +120,13 @@ export default function GroupChat() {
   const kickMember = async (memberId) => {
     await supabase.from('group_members').delete().eq('id', memberId)
     setMembers(prev => prev.filter(m => m.id !== memberId))
+    setRoleMenuOpen(null)
+  }
+
+  const promoteRole = async (memberId, newRole) => {
+    await supabase.from('group_members').update({ role: newRole }).eq('id', memberId)
+    setMembers(prev => prev.map(m => m.id === memberId ? { ...m, role: newRole } : m))
+    setRoleMenuOpen(null)
   }
 
   const generateInvite = async () => {
@@ -105,6 +138,8 @@ export default function GroupChat() {
   }
 
   const isLeader = group?.leader_id === currentUser?.id
+  const isAdmin = myRole === 'admin'
+  const canManageMembers = isLeader || isAdmin
 
   const getName = (userId) => {
     const p = profiles[userId]
@@ -119,6 +154,11 @@ export default function GroupChat() {
     return avatarColors[name.charCodeAt(0) % avatarColors.length]
   }
 
+  const getMemberRole = (member) => {
+    if (member.user_id === group?.leader_id) return 'leader'
+    return member.role || 'member'
+  }
+
   const Avatar = ({ userId, size = 28 }) => {
     const url = getAvatar(userId)
     const name = getName(userId)
@@ -130,22 +170,109 @@ export default function GroupChat() {
     )
   }
 
+  const RoleBadge = ({ role }) => {
+    const cfg = ROLE_CONFIG[role] || ROLE_CONFIG.member
+    if (role === 'member') return null
+    return (
+      <span style={{ fontSize: '0.65rem', color: cfg.color, background: `${cfg.color}18`, border: `1px solid ${cfg.color}40`, borderRadius: '100px', padding: '1px 6px', whiteSpace: 'nowrap' }}>
+        {cfg.label}
+      </span>
+    )
+  }
+
+  const RoleMenu = ({ member }) => {
+    const role = member.role || 'member'
+    const isTargetLeader = member.user_id === group?.leader_id
+    const isMe = member.user_id === currentUser?.id
+    if (isTargetLeader || isMe) return null
+    // Admins can only kick members, not promote
+    if (isAdmin && !isLeader) {
+      return (
+        <button
+          onClick={() => kickMember(member.id)}
+          style={{ background: 'rgba(239,68,68,0.15)', border: '1px solid rgba(239,68,68,0.2)', color: '#ef4444', borderRadius: '6px', padding: '0.2rem 0.5rem', cursor: 'pointer', fontSize: '0.75rem', fontFamily: 'Inter, sans-serif' }}
+        >
+          Kick
+        </button>
+      )
+    }
+
+    // Leader gets full role menu
+    if (!isLeader) return null
+    return (
+      <div style={{ position: 'relative' }} onClick={e => e.stopPropagation()}>
+        <button
+          onClick={() => setRoleMenuOpen(roleMenuOpen === member.id ? null : member.id)}
+          style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', color: '#aaa', borderRadius: '6px', padding: '0.2rem 0.5rem', cursor: 'pointer', fontSize: '0.75rem', fontFamily: 'Inter, sans-serif' }}
+        >
+          ⚙️
+        </button>
+        {roleMenuOpen === member.id && (
+          <div style={{ position: 'absolute', right: 0, top: '110%', background: '#1a1a2e', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '10px', padding: '0.4rem', zIndex: 50, minWidth: '140px', boxShadow: '0 4px 20px rgba(0,0,0,0.4)', display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+            {['admin', 'elder', 'member'].map(r => (
+              <button
+                key={r}
+                onClick={() => promoteRole(member.id, r)}
+                style={{
+                  background: role === r ? 'rgba(108,99,255,0.2)' : 'transparent',
+                  border: 'none',
+                  color: role === r ? '#a78bfa' : '#ccc',
+                  borderRadius: '6px',
+                  padding: '0.4rem 0.75rem',
+                  cursor: 'pointer',
+                  fontFamily: 'Inter, sans-serif',
+                  fontSize: '0.8rem',
+                  textAlign: 'left',
+                  fontWeight: role === r ? '600' : '400'
+                }}
+              >
+                {ROLE_CONFIG[r].label} {role === r ? '✓' : ''}
+              </button>
+            ))}
+            <div style={{ borderTop: '1px solid rgba(255,255,255,0.08)', marginTop: '0.2rem', paddingTop: '0.2rem' }}>
+              <button
+                onClick={() => kickMember(member.id)}
+                style={{ background: 'transparent', border: 'none', color: '#ef4444', borderRadius: '6px', padding: '0.4rem 0.75rem', cursor: 'pointer', fontFamily: 'Inter, sans-serif', fontSize: '0.8rem', textAlign: 'left', width: '100%' }}
+              >
+                🚫 Kick
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  // Sort members: admins first, then elders, then members
+  const sortedMembers = [...members].sort((a, b) => {
+    const order = { admin: 0, elder: 1, member: 2 }
+    return (order[a.role] ?? 2) - (order[b.role] ?? 2)
+  })
+
   const Sidebar = () => (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', height: '100%', overflowY: 'auto' }}>
       <div>
         <button onClick={() => navigate('/groups')} style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer', fontFamily: 'Inter, sans-serif', marginBottom: '1rem', padding: 0, fontSize: '0.9rem' }}>
           ← Back to Groups
         </button>
-        {isLeader && (
+        {canManageMembers && (
           <button onClick={generateInvite} style={{ width: '100%', padding: '0.6rem', background: 'rgba(108,99,255,0.15)', color: '#a78bfa', border: '1px solid rgba(108,99,255,0.3)', borderRadius: '8px', cursor: 'pointer', fontFamily: 'Inter, sans-serif', fontWeight: '600', fontSize: '0.85rem', marginBottom: '0.75rem' }}>
             🔗 Copy Invite Link
           </button>
         )}
         <h3 style={{ fontWeight: '700', fontSize: '1.1rem', marginBottom: '0.25rem' }}>{group?.name}</h3>
         <p style={{ color: '#a78bfa', fontSize: '0.85rem' }}>{group?.game}</p>
+
+        {/* My role badge */}
+        <div style={{ marginTop: '0.5rem' }}>
+          <span style={{ fontSize: '0.75rem', color: ROLE_CONFIG[myRole]?.color || '#888' }}>
+            You are: {ROLE_CONFIG[myRole]?.label || 'Member'}
+          </span>
+        </div>
       </div>
 
-      {isLeader && pendingMembers.length > 0 && (
+      {/* Pending requests — visible to leader and admin */}
+      {canManageMembers && pendingMembers.length > 0 && (
         <div>
           <p style={{ color: '#f59e0b', fontWeight: '600', fontSize: '0.8rem', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.75rem' }}>
             Pending ({pendingMembers.length})
@@ -164,25 +291,26 @@ export default function GroupChat() {
         </div>
       )}
 
+      {/* Members list */}
       <div>
         <p style={{ color: '#aaa', fontWeight: '600', fontSize: '0.8rem', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.75rem' }}>
           Members ({members.length + 1})
         </p>
         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+          {/* Leader row */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.5rem', borderRadius: '8px', background: 'rgba(245,158,11,0.08)' }}>
             <Avatar userId={group?.leader_id} />
             <p style={{ fontSize: '0.85rem', fontWeight: '500', flex: 1 }}>{getName(group?.leader_id)}</p>
-            <span style={{ fontSize: '0.7rem', color: '#f59e0b' }}>👑</span>
+            <RoleBadge role="leader" />
           </div>
-          {members.map(m => (
-            <div key={m.id} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.5rem', borderRadius: '8px' }}>
+
+          {/* Other members sorted by role */}
+          {sortedMembers.map(m => (
+            <div key={m.id} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.5rem', borderRadius: '8px', background: m.role === 'admin' ? 'rgba(108,99,255,0.06)' : m.role === 'elder' ? 'rgba(16,185,129,0.04)' : 'transparent' }}>
               <Avatar userId={m.user_id} />
               <p style={{ fontSize: '0.85rem', flex: 1 }}>{getName(m.user_id)}</p>
-              {isLeader && m.user_id !== currentUser?.id && (
-                <button onClick={() => kickMember(m.id)} style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer', fontSize: '0.75rem', padding: '0.2rem 0.4rem', borderRadius: '4px', fontFamily: 'Inter, sans-serif' }}>
-                  Kick
-                </button>
-              )}
+              <RoleBadge role={m.role || 'member'} />
+              <RoleMenu member={m} />
             </div>
           ))}
         </div>
@@ -198,7 +326,7 @@ export default function GroupChat() {
           <Sidebar />
         </div>
 
-        {/* Chat */}
+        {/* Chat area */}
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', padding: '1rem', minWidth: 0 }}>
           {/* Mobile header */}
           <div className="mobile-header" style={{ display: 'none', alignItems: 'center', gap: '0.75rem', marginBottom: '1rem' }}>
@@ -212,6 +340,7 @@ export default function GroupChat() {
             </button>
           </div>
 
+          {/* Messages */}
           <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '1rem', marginBottom: '1rem' }}>
             {messages.length === 0 && (
               <div style={{ textAlign: 'center', color: '#888', marginTop: '3rem' }}>
@@ -221,12 +350,21 @@ export default function GroupChat() {
             )}
             {messages.map(msg => {
               const isMine = msg.sender_id === currentUser?.id
-              const name = getName(msg.sender_id)
+              const senderMember = members.find(m => m.user_id === msg.sender_id)
+              const senderRole = msg.sender_id === group?.leader_id ? 'leader' : senderMember?.role || 'member'
+              const roleInfo = ROLE_CONFIG[senderRole]
               return (
                 <div key={msg.id} style={{ display: 'flex', gap: '0.75rem', alignItems: 'flex-start', flexDirection: isMine ? 'row-reverse' : 'row' }}>
                   <Avatar userId={msg.sender_id} size={32} />
                   <div style={{ maxWidth: '65%' }}>
-                    {!isMine && <p style={{ fontSize: '0.75rem', color: '#888', marginBottom: '0.25rem' }}>{name}</p>}
+                    {!isMine && (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.25rem' }}>
+                        <p style={{ fontSize: '0.75rem', color: '#888' }}>{getName(msg.sender_id)}</p>
+                        {senderRole !== 'member' && (
+                          <span style={{ fontSize: '0.6rem', color: roleInfo.color }}>{roleInfo.label}</span>
+                        )}
+                      </div>
+                    )}
                     <div style={{ background: isMine ? 'linear-gradient(135deg, #6c63ff, #a78bfa)' : 'rgba(255,255,255,0.08)', color: 'white', padding: '0.65rem 1rem', borderRadius: isMine ? '18px 18px 4px 18px' : '18px 18px 18px 4px', fontSize: '0.95rem', lineHeight: 1.4 }}>
                       {msg.content}
                     </div>
@@ -237,6 +375,7 @@ export default function GroupChat() {
             <div ref={bottomRef} />
           </div>
 
+          {/* Input */}
           <div style={{ display: 'flex', gap: '0.75rem' }}>
             <input
               type="text"
