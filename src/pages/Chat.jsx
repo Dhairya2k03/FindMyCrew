@@ -110,6 +110,9 @@ export default function Chat() {
           if (msg.sender_id === userId) supabase.from('messages').update({ read_at: new Date().toISOString() }).eq('id', msg.id).then(() => {})
         }
       })
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'messages' }, payload => {
+        setMessages(prev => prev.map(m => m.id === payload.new.id ? { ...m, read_at: payload.new.read_at } : m))
+      })
       .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'messages' }, payload => {
         setMessages(prev => prev.filter(m => m.id !== payload.old.id))
       })
@@ -149,7 +152,7 @@ export default function Chat() {
     setNewMessage('')
     clearTimeout(typingTimeoutRef.current)
     broadcastChannelRef.current?.send({ type: 'broadcast', event: 'typing', payload: { typing: false, userId: currentUser.id } })
-    const tempMsg = { id: `temp-${Date.now()}`, sender_id: currentUser.id, receiver_id: userId, content, created_at: new Date() }
+    const tempMsg = { id: `temp-${Date.now()}`, sender_id: currentUser.id, receiver_id: userId, content, created_at: new Date(), read_at: null }
     setMessages(prev => [...prev, tempMsg])
     supabase.from('messages').insert({ sender_id: currentUser.id, receiver_id: userId, content }).select().single().then(({ data }) => {
       if (data) setMessages(prev => prev.map(m => m.id === tempMsg.id ? data : m))
@@ -193,7 +196,7 @@ export default function Chat() {
     const { error: uploadError } = await supabase.storage.from('chat-images').upload(fileName, file)
     if (uploadError) { alert('Failed to upload image: ' + uploadError.message); setUploading(false); return }
     const { data: { publicUrl } } = supabase.storage.from('chat-images').getPublicUrl(fileName)
-    const tempMsg = { id: `temp-${Date.now()}`, sender_id: currentUser.id, receiver_id: userId, content: `[image]${publicUrl}`, created_at: new Date() }
+    const tempMsg = { id: `temp-${Date.now()}`, sender_id: currentUser.id, receiver_id: userId, content: `[image]${publicUrl}`, created_at: new Date(), read_at: null }
     setMessages(prev => [...prev, tempMsg])
     supabase.from('messages').insert({ sender_id: currentUser.id, receiver_id: userId, content: `[image]${publicUrl}` }).select().single().then(({ data }) => {
       if (data) setMessages(prev => prev.map(m => m.id === tempMsg.id ? data : m))
@@ -248,6 +251,7 @@ export default function Chat() {
           const isHovered = hoveredMsg === msg.id
           const groupedRxns = getGroupedReactions(msg.id)
           const hasReactions = Object.keys(groupedRxns).length > 0
+          const isRead = isMine && msg.read_at && !isTemp
           return (
             <div key={msg.id} style={{ alignSelf: isMine ? 'flex-end' : 'flex-start', display: 'flex', flexDirection: 'column', alignItems: isMine ? 'flex-end' : 'flex-start', maxWidth: '75%', position: 'relative' }}
               onMouseEnter={() => setHoveredMsg(msg.id)} onMouseLeave={() => setHoveredMsg(null)}>
@@ -271,6 +275,12 @@ export default function Chat() {
                   </div>
                 )}
               </div>
+              {/* Read receipt */}
+              {isMine && !isTemp && (
+                <p style={{ fontSize: '0.65rem', color: isRead ? '#a78bfa' : '#555', marginTop: '0.2rem', textAlign: 'right' }}>
+                  {isRead ? '✓✓ Read' : '✓ Sent'}
+                </p>
+              )}
               {hasReactions && (
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.25rem', marginTop: '0.3rem' }}>
                   {Object.entries(groupedRxns).map(([emoji, userIds]) => (
@@ -298,19 +308,12 @@ export default function Chat() {
         <button onClick={() => fileInputRef.current.click()} disabled={uploading} style={{ padding: '0.85rem', background: 'rgba(255,255,255,0.05)', color: uploading ? '#555' : '#a78bfa', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '10px', cursor: uploading ? 'default' : 'pointer', fontSize: '1.2rem', lineHeight: 1 }}>
           {uploading ? '⏳' : '📷'}
         </button>
-        <button onClick={() => setVoiceOpen(!voiceOpen)} style={{ padding: '0.85rem', background: voiceOpen ? 'rgba(16,185,129,0.15)' : 'rgba(255,255,255,0.05)', color: voiceOpen ? '#10b981' : '#a78bfa', border: voiceOpen ? '1px solid rgba(16,185,129,0.3)' : '1px solid rgba(255,255,255,0.1)', borderRadius: '10px', cursor: 'pointer', fontSize: '1.2rem', lineHeight: 1 }}>
-          🎙️
-        </button>
+        <button onClick={() => setVoiceOpen(!voiceOpen)} style={{ padding: '0.85rem', background: voiceOpen ? 'rgba(16,185,129,0.15)' : 'rgba(255,255,255,0.05)', color: voiceOpen ? '#10b981' : '#a78bfa', border: voiceOpen ? '1px solid rgba(16,185,129,0.3)' : '1px solid rgba(255,255,255,0.1)', borderRadius: '10px', cursor: 'pointer', fontSize: '1.2rem', lineHeight: 1 }}>🎙️</button>
         <input type="text" placeholder="Type a message..." value={newMessage} onChange={handleTyping} onKeyDown={e => e.key === 'Enter' && sendMessage()} style={{ flex: 1, padding: '0.85rem 1rem', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.05)', color: 'white', fontFamily: 'Inter, sans-serif', fontSize: '0.95rem', outline: 'none' }} />
         <button onClick={sendMessage} style={{ padding: '0.85rem 1.5rem', background: 'linear-gradient(135deg, #6c63ff, #a78bfa)', color: 'white', border: 'none', borderRadius: '10px', cursor: 'pointer', fontFamily: 'Inter, sans-serif', fontWeight: '600' }}>Send</button>
       </div>
 
-      {voiceOpen && (
-        <VoiceChat
-          roomName={`chat-${[currentUser?.id, userId].sort().join('-')}`}
-          onClose={() => setVoiceOpen(false)}
-        />
-      )}
+      {voiceOpen && <VoiceChat roomName={`chat-${[currentUser?.id, userId].sort().join('-')}`} onClose={() => setVoiceOpen(false)} />}
 
       <style>{`
         @keyframes bounce {

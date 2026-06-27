@@ -24,6 +24,9 @@ export default function GroupChat() {
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [roleMenuOpen, setRoleMenuOpen] = useState(null)
   const [voiceOpen, setVoiceOpen] = useState(false)
+  const [announcements, setAnnouncements] = useState([])
+  const [newAnnouncement, setNewAnnouncement] = useState('')
+  const [showAnnouncementInput, setShowAnnouncementInput] = useState(false)
   const bottomRef = useRef(null)
 
   useEffect(() => {
@@ -52,6 +55,12 @@ export default function GroupChat() {
         profilesData?.forEach(p => { map[p.id] = p })
         setProfiles(map)
       }
+      const { data: announcementsData } = await supabase
+        .from('group_announcements')
+        .select('*')
+        .eq('group_id', groupId)
+        .order('created_at', { ascending: false })
+      setAnnouncements(announcementsData || [])
     }
     load()
   }, [groupId])
@@ -64,6 +73,12 @@ export default function GroupChat() {
           if (exists) return prev
           return [...prev, payload.new]
         })
+      })
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'group_announcements', filter: `group_id=eq.${groupId}` }, payload => {
+        setAnnouncements(prev => [payload.new, ...prev])
+      })
+      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'group_announcements', filter: `group_id=eq.${groupId}` }, payload => {
+        setAnnouncements(prev => prev.filter(a => a.id !== payload.old.id))
       })
       .subscribe()
     return () => supabase.removeChannel(channel)
@@ -85,6 +100,22 @@ export default function GroupChat() {
     setMessages(prev => [...prev, tempMsg])
     const { data } = await supabase.from('group_messages').insert({ group_id: groupId, sender_id: currentUser.id, content }).select().single()
     if (data) setMessages(prev => prev.map(m => m.id === tempMsg.id ? data : m))
+  }
+
+  const postAnnouncement = async () => {
+    if (!newAnnouncement.trim()) return
+    const { error } = await supabase.from('group_announcements').insert({
+      group_id: groupId,
+      content: newAnnouncement.trim(),
+      created_by: currentUser.id
+    })
+    if (error) return alert(error.message)
+    setNewAnnouncement('')
+    setShowAnnouncementInput(false)
+  }
+
+  const deleteAnnouncement = async (id) => {
+    await supabase.from('group_announcements').delete().eq('id', id)
   }
 
   const respondToMember = async (memberId, status) => {
@@ -119,6 +150,7 @@ export default function GroupChat() {
   const isLeader = group?.leader_id === currentUser?.id
   const isAdmin = myRole === 'admin'
   const canManageMembers = isLeader || isAdmin
+  const canAnnounce = isLeader || isAdmin || myRole === 'elder'
 
   const getName = (userId) => { const p = profiles[userId]; return p?.username || p?.email?.split('@')[0] || 'Player' }
   const getAvatar = (userId) => profiles[userId]?.avatar_url || null
@@ -239,6 +271,37 @@ export default function GroupChat() {
             <button onClick={() => setSidebarOpen(true)} style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', color: 'white', borderRadius: '8px', padding: '0.4rem 0.75rem', cursor: 'pointer', fontFamily: 'Inter, sans-serif', fontSize: '0.8rem' }}>👥 {members.length + 1}</button>
           </div>
 
+          {/* Announcements */}
+          {announcements.length > 0 && (
+            <div style={{ marginBottom: '1rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+              {announcements.map(a => (
+                <div key={a.id} style={{ background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.2)', borderRadius: '10px', padding: '0.75rem 1rem', display: 'flex', alignItems: 'flex-start', gap: '0.75rem' }}>
+                  <span style={{ fontSize: '1rem', flexShrink: 0 }}>📢</span>
+                  <p style={{ flex: 1, fontSize: '0.9rem', color: '#f5c842', lineHeight: 1.4 }}>{a.content}</p>
+                  {(isLeader || isAdmin || a.created_by === currentUser?.id) && (
+                    <button onClick={() => deleteAnnouncement(a.id)} style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer', fontSize: '0.8rem', flexShrink: 0 }}>✕</button>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Announcement input */}
+          {canAnnounce && showAnnouncementInput && (
+            <div style={{ marginBottom: '1rem', display: 'flex', gap: '0.5rem' }}>
+              <input
+                type="text"
+                placeholder="Write an announcement..."
+                value={newAnnouncement}
+                onChange={e => setNewAnnouncement(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && postAnnouncement()}
+                style={{ flex: 1, padding: '0.65rem 1rem', borderRadius: '10px', border: '1px solid rgba(245,158,11,0.3)', background: 'rgba(245,158,11,0.05)', color: 'white', fontFamily: 'Inter, sans-serif', fontSize: '0.9rem', outline: 'none' }}
+              />
+              <button onClick={postAnnouncement} style={{ padding: '0.65rem 1rem', background: 'rgba(245,158,11,0.2)', color: '#f59e0b', border: '1px solid rgba(245,158,11,0.3)', borderRadius: '10px', cursor: 'pointer', fontFamily: 'Inter, sans-serif', fontWeight: '600', fontSize: '0.85rem' }}>Post</button>
+              <button onClick={() => setShowAnnouncementInput(false)} style={{ padding: '0.65rem 0.75rem', background: 'transparent', color: '#666', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '10px', cursor: 'pointer', fontFamily: 'Inter, sans-serif' }}>✕</button>
+            </div>
+          )}
+
           <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '1rem', marginBottom: '1rem' }}>
             {messages.length === 0 && (
               <div style={{ textAlign: 'center', color: '#888', marginTop: '3rem' }}>
@@ -272,12 +335,10 @@ export default function GroupChat() {
           </div>
 
           <div style={{ display: 'flex', gap: '0.75rem' }}>
-            <button
-              onClick={() => setVoiceOpen(!voiceOpen)}
-              style={{ padding: '0.85rem', background: voiceOpen ? 'rgba(16,185,129,0.15)' : 'rgba(255,255,255,0.05)', color: voiceOpen ? '#10b981' : '#a78bfa', border: voiceOpen ? '1px solid rgba(16,185,129,0.3)' : '1px solid rgba(255,255,255,0.1)', borderRadius: '10px', cursor: 'pointer', fontSize: '1.2rem', lineHeight: 1 }}
-            >
-              🎙️
-            </button>
+            {canAnnounce && (
+              <button onClick={() => setShowAnnouncementInput(!showAnnouncementInput)} style={{ padding: '0.85rem', background: showAnnouncementInput ? 'rgba(245,158,11,0.2)' : 'rgba(255,255,255,0.05)', color: showAnnouncementInput ? '#f59e0b' : '#a78bfa', border: showAnnouncementInput ? '1px solid rgba(245,158,11,0.3)' : '1px solid rgba(255,255,255,0.1)', borderRadius: '10px', cursor: 'pointer', fontSize: '1.1rem', lineHeight: 1 }}>📢</button>
+            )}
+            <button onClick={() => setVoiceOpen(!voiceOpen)} style={{ padding: '0.85rem', background: voiceOpen ? 'rgba(16,185,129,0.15)' : 'rgba(255,255,255,0.05)', color: voiceOpen ? '#10b981' : '#a78bfa', border: voiceOpen ? '1px solid rgba(16,185,129,0.3)' : '1px solid rgba(255,255,255,0.1)', borderRadius: '10px', cursor: 'pointer', fontSize: '1.2rem', lineHeight: 1 }}>🎙️</button>
             <input type="text" placeholder="Message the group..." value={newMessage} onChange={e => setNewMessage(e.target.value)} onKeyDown={e => e.key === 'Enter' && sendMessage()} style={{ flex: 1, padding: '0.85rem 1rem', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.05)', color: 'white', fontFamily: 'Inter, sans-serif', fontSize: '0.95rem', outline: 'none' }} />
             <button onClick={sendMessage} style={{ padding: '0.85rem 1.5rem', background: 'linear-gradient(135deg, #6c63ff, #a78bfa)', color: 'white', border: 'none', borderRadius: '10px', cursor: 'pointer', fontFamily: 'Inter, sans-serif', fontWeight: '600' }}>Send</button>
           </div>
@@ -294,12 +355,7 @@ export default function GroupChat() {
         </div>
       )}
 
-      {voiceOpen && (
-        <VoiceChat
-          roomName={`group-${groupId}`}
-          onClose={() => setVoiceOpen(false)}
-        />
-      )}
+      {voiceOpen && <VoiceChat roomName={`group-${groupId}`} onClose={() => setVoiceOpen(false)} />}
 
       <style>{`
         @media (max-width: 768px) {
