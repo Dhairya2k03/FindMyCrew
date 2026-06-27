@@ -1,3 +1,1 @@
-export default function VoiceChat() {
-  return null;
-}
+export default function VoiceChat() { return null; }
