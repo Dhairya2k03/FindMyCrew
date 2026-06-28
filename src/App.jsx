@@ -17,7 +17,7 @@ import UserProfile from './pages/UserProfile'
 import Notifications from './pages/Notifications'
 import Search from './pages/Search'
 import Messages from './pages/Messages'
-import AchievementsPage from './AchievementsPage'
+import AchievementsPage from "./pages/AchievementsPage";
 
 function ProtectedRoute({ user, children }) {
   if (!user) return <Navigate to="/login" />
