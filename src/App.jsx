@@ -17,6 +17,7 @@ import UserProfile from './pages/UserProfile'
 import Notifications from './pages/Notifications'
 import Search from './pages/Search'
 import Messages from './pages/Messages'
+import AchievementsPage from './AchievementsPage'
 
 function ProtectedRoute({ user, children }) {
   if (!user) return <Navigate to="/login" />
@@ -59,6 +60,7 @@ export default function App() {
         <Route path="/notifications" element={<ProtectedRoute user={user}><Notifications /></ProtectedRoute>} />
         <Route path="/search" element={<ProtectedRoute user={user}><Search /></ProtectedRoute>} />
         <Route path="*" element={<Navigate to={user ? "/" : "/login"} />} />
+        <Route path="/achievements" element={<AchievementsPage />} />
       </Routes>
     </BrowserRouter>
   )
