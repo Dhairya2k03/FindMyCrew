@@ -50,14 +50,9 @@ export default function Connections() {
       .from('connections')
       .update({ status })
       .eq('id', connectionId)
-      if (error) alert(error.message)
-      else {
-        setReceived(prev => prev.filter(c => c.id !== connectionId))
-        if (status === 'accepted') {
-          checkAndAwardAchievements(user.id || currentUserId)
-        }
-      }
-    
+    if (error) alert(error.message)
+    else setReceived(prev => prev.map(c => c.id === connectionId ? { ...c, status } : c))
+  }
 
   if (loading) return <p style={{ padding: '2rem', color: '#888' }}>Loading...</p>
 
