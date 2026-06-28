@@ -10,6 +10,8 @@ const ROLE_CONFIG = {
   member: { label: 'Member',    color: '#888'    },
 }
 
+const EMOJI_OPTIONS = ['❤️', '😂', '😮', '😢', '👍', '🔥']
+
 export default function GroupChat() {
   const { groupId } = useParams()
   const navigate = useNavigate()
@@ -27,6 +29,12 @@ export default function GroupChat() {
   const [announcements, setAnnouncements] = useState([])
   const [newAnnouncement, setNewAnnouncement] = useState('')
   const [showAnnouncementInput, setShowAnnouncementInput] = useState(false)
+  const [reactions, setReactions] = useState({})
+  const [emojiPickerMsg, setEmojiPickerMsg] = useState(null)
+  const [hoveredMsg, setHoveredMsg] = useState(null)
+  const [events, setEvents] = useState([])
+  const [showEventForm, setShowEventForm] = useState(false)
+  const [newEvent, setNewEvent] = useState({ title: '', description: '', event_time: '' })
   const bottomRef = useRef(null)
 
   useEffect(() => {
@@ -55,12 +63,24 @@ export default function GroupChat() {
         profilesData?.forEach(p => { map[p.id] = p })
         setProfiles(map)
       }
-      const { data: announcementsData } = await supabase
-        .from('group_announcements')
-        .select('*')
-        .eq('group_id', groupId)
-        .order('created_at', { ascending: false })
+      const { data: announcementsData } = await supabase.from('group_announcements').select('*').eq('group_id', groupId).order('created_at', { ascending: false })
       setAnnouncements(announcementsData || [])
+
+      if (msgs && msgs.length > 0) {
+        const msgIds = msgs.map(m => m.id)
+        const { data: rxns } = await supabase.from('group_message_reactions').select('*').in('message_id', msgIds)
+        if (rxns) {
+          const grouped = {}
+          rxns.forEach(r => {
+            if (!grouped[r.message_id]) grouped[r.message_id] = []
+            grouped[r.message_id].push(r)
+          })
+          setReactions(grouped)
+        }
+      }
+
+      const { data: eventsData } = await supabase.from('group_events').select('*').eq('group_id', groupId).order('event_time', { ascending: true })
+      setEvents(eventsData || [])
     }
     load()
   }, [groupId])
@@ -68,17 +88,27 @@ export default function GroupChat() {
   useEffect(() => {
     const channel = supabase.channel(`group-${groupId}`)
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'group_messages', filter: `group_id=eq.${groupId}` }, payload => {
-        setMessages(prev => {
-          const exists = prev.some(m => m.id === payload.new.id)
-          if (exists) return prev
-          return [...prev, payload.new]
-        })
+        setMessages(prev => { const exists = prev.some(m => m.id === payload.new.id); if (exists) return prev; return [...prev, payload.new] })
       })
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'group_announcements', filter: `group_id=eq.${groupId}` }, payload => {
         setAnnouncements(prev => [payload.new, ...prev])
       })
       .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'group_announcements', filter: `group_id=eq.${groupId}` }, payload => {
         setAnnouncements(prev => prev.filter(a => a.id !== payload.old.id))
+      })
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'group_message_reactions' }, payload => {
+        const r = payload.new
+        setReactions(prev => { const existing = prev[r.message_id] || []; if (existing.some(e => e.id === r.id)) return prev; return { ...prev, [r.message_id]: [...existing, r] } })
+      })
+      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'group_message_reactions' }, payload => {
+        const r = payload.old
+        setReactions(prev => ({ ...prev, [r.message_id]: (prev[r.message_id] || []).filter(e => e.id !== r.id) }))
+      })
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'group_events', filter: `group_id=eq.${groupId}` }, payload => {
+        setEvents(prev => [...prev, payload.new].sort((a, b) => new Date(a.event_time) - new Date(b.event_time)))
+      })
+      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'group_events', filter: `group_id=eq.${groupId}` }, payload => {
+        setEvents(prev => prev.filter(e => e.id !== payload.old.id))
       })
       .subscribe()
     return () => supabase.removeChannel(channel)
@@ -87,7 +117,7 @@ export default function GroupChat() {
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages])
 
   useEffect(() => {
-    const handler = () => setRoleMenuOpen(null)
+    const handler = () => { setRoleMenuOpen(null); setEmojiPickerMsg(null) }
     document.addEventListener('click', handler)
     return () => document.removeEventListener('click', handler)
   }, [])
@@ -102,21 +132,47 @@ export default function GroupChat() {
     if (data) setMessages(prev => prev.map(m => m.id === tempMsg.id ? data : m))
   }
 
+  const toggleReaction = async (msgId, emoji) => {
+    if (!currentUser) return
+    const existing = (reactions[msgId] || []).find(r => r.user_id === currentUser.id && r.emoji === emoji)
+    if (existing) {
+      setReactions(prev => ({ ...prev, [msgId]: (prev[msgId] || []).filter(r => r.id !== existing.id) }))
+      await supabase.from('group_message_reactions').delete().eq('id', existing.id)
+    } else {
+      const tempId = `temp-${Date.now()}`
+      setReactions(prev => ({ ...prev, [msgId]: [...(prev[msgId] || []), { id: tempId, message_id: msgId, user_id: currentUser.id, emoji }] }))
+      const { data } = await supabase.from('group_message_reactions').insert({ message_id: msgId, user_id: currentUser.id, emoji }).select().single()
+      if (data) setReactions(prev => ({ ...prev, [msgId]: (prev[msgId] || []).map(r => r.id === tempId ? data : r) }))
+    }
+    setEmojiPickerMsg(null)
+  }
+
+  const getGroupedReactions = (msgId) => {
+    const rxns = reactions[msgId] || []
+    const grouped = {}
+    rxns.forEach(r => { if (!grouped[r.emoji]) grouped[r.emoji] = []; grouped[r.emoji].push(r.user_id) })
+    return grouped
+  }
+
   const postAnnouncement = async () => {
     if (!newAnnouncement.trim()) return
-    const { error } = await supabase.from('group_announcements').insert({
-      group_id: groupId,
-      content: newAnnouncement.trim(),
-      created_by: currentUser.id
-    })
+    const { error } = await supabase.from('group_announcements').insert({ group_id: groupId, content: newAnnouncement.trim(), created_by: currentUser.id })
     if (error) return alert(error.message)
     setNewAnnouncement('')
     setShowAnnouncementInput(false)
   }
 
-  const deleteAnnouncement = async (id) => {
-    await supabase.from('group_announcements').delete().eq('id', id)
+  const deleteAnnouncement = async (id) => { await supabase.from('group_announcements').delete().eq('id', id) }
+
+  const createEvent = async () => {
+    if (!newEvent.title.trim() || !newEvent.event_time) return alert('Please fill in title and time')
+    const { error } = await supabase.from('group_events').insert({ group_id: groupId, title: newEvent.title.trim(), description: newEvent.description.trim(), event_time: newEvent.event_time, created_by: currentUser.id })
+    if (error) return alert(error.message)
+    setNewEvent({ title: '', description: '', event_time: '' })
+    setShowEventForm(false)
   }
+
+  const deleteEvent = async (id) => { await supabase.from('group_events').delete().eq('id', id) }
 
   const respondToMember = async (memberId, status) => {
     await supabase.from('group_members').update({ status }).eq('id', memberId)
@@ -175,9 +231,7 @@ export default function GroupChat() {
     const isTargetLeader = member.user_id === group?.leader_id
     const isMe = member.user_id === currentUser?.id
     if (isTargetLeader || isMe) return null
-    if (isAdmin && !isLeader) {
-      return <button onClick={() => kickMember(member.id)} style={{ background: 'rgba(239,68,68,0.15)', border: '1px solid rgba(239,68,68,0.2)', color: '#ef4444', borderRadius: '6px', padding: '0.2rem 0.5rem', cursor: 'pointer', fontSize: '0.75rem', fontFamily: 'Inter, sans-serif' }}>Kick</button>
-    }
+    if (isAdmin && !isLeader) return <button onClick={() => kickMember(member.id)} style={{ background: 'rgba(239,68,68,0.15)', border: '1px solid rgba(239,68,68,0.2)', color: '#ef4444', borderRadius: '6px', padding: '0.2rem 0.5rem', cursor: 'pointer', fontSize: '0.75rem', fontFamily: 'Inter, sans-serif' }}>Kick</button>
     if (!isLeader) return null
     return (
       <div style={{ position: 'relative' }} onClick={e => e.stopPropagation()}>
@@ -198,24 +252,42 @@ export default function GroupChat() {
     )
   }
 
-  const sortedMembers = [...members].sort((a, b) => {
-    const order = { admin: 0, elder: 1, member: 2 }
-    return (order[a.role] ?? 2) - (order[b.role] ?? 2)
-  })
+  const sortedMembers = [...members].sort((a, b) => { const order = { admin: 0, elder: 1, member: 2 }; return (order[a.role] ?? 2) - (order[b.role] ?? 2) })
+
+  const formatEventTime = (dt) => new Date(dt).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
 
   const Sidebar = () => (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', height: '100%', overflowY: 'auto' }}>
       <div>
         <button onClick={() => navigate('/groups')} style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer', fontFamily: 'Inter, sans-serif', marginBottom: '1rem', padding: 0, fontSize: '0.9rem' }}>← Back to Groups</button>
-        {canManageMembers && (
-          <button onClick={generateInvite} style={{ width: '100%', padding: '0.6rem', background: 'rgba(108,99,255,0.15)', color: '#a78bfa', border: '1px solid rgba(108,99,255,0.3)', borderRadius: '8px', cursor: 'pointer', fontFamily: 'Inter, sans-serif', fontWeight: '600', fontSize: '0.85rem', marginBottom: '0.75rem' }}>🔗 Copy Invite Link</button>
-        )}
+        {canManageMembers && <button onClick={generateInvite} style={{ width: '100%', padding: '0.6rem', background: 'rgba(108,99,255,0.15)', color: '#a78bfa', border: '1px solid rgba(108,99,255,0.3)', borderRadius: '8px', cursor: 'pointer', fontFamily: 'Inter, sans-serif', fontWeight: '600', fontSize: '0.85rem', marginBottom: '0.75rem' }}>🔗 Copy Invite Link</button>}
         <h3 style={{ fontWeight: '700', fontSize: '1.1rem', marginBottom: '0.25rem' }}>{group?.name}</h3>
         <p style={{ color: '#a78bfa', fontSize: '0.85rem' }}>{group?.game}</p>
         <div style={{ marginTop: '0.5rem' }}>
           <span style={{ fontSize: '0.75rem', color: ROLE_CONFIG[myRole]?.color || '#888' }}>You are: {ROLE_CONFIG[myRole]?.label || 'Member'}</span>
         </div>
       </div>
+
+      {/* Events */}
+      {events.length > 0 && (
+        <div>
+          <p style={{ color: '#10b981', fontWeight: '600', fontSize: '0.8rem', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.75rem' }}>📅 Events</p>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+            {events.map(ev => (
+              <div key={ev.id} style={{ background: 'rgba(16,185,129,0.06)', border: '1px solid rgba(16,185,129,0.2)', borderRadius: '10px', padding: '0.6rem 0.75rem' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                  <p style={{ fontWeight: '600', fontSize: '0.85rem', color: '#10b981' }}>{ev.title}</p>
+                  {(isLeader || isAdmin || ev.created_by === currentUser?.id) && (
+                    <button onClick={() => deleteEvent(ev.id)} style={{ background: 'none', border: 'none', color: '#555', cursor: 'pointer', fontSize: '0.75rem' }}>✕</button>
+                  )}
+                </div>
+                <p style={{ color: '#888', fontSize: '0.75rem' }}>{formatEventTime(ev.event_time)}</p>
+                {ev.description && <p style={{ color: '#666', fontSize: '0.75rem', marginTop: '0.2rem' }}>{ev.description}</p>}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {canManageMembers && pendingMembers.length > 0 && (
         <div>
@@ -273,7 +345,7 @@ export default function GroupChat() {
 
           {/* Announcements */}
           {announcements.length > 0 && (
-            <div style={{ marginBottom: '1rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+            <div style={{ marginBottom: '0.75rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
               {announcements.map(a => (
                 <div key={a.id} style={{ background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.2)', borderRadius: '10px', padding: '0.75rem 1rem', display: 'flex', alignItems: 'flex-start', gap: '0.75rem' }}>
                   <span style={{ fontSize: '1rem', flexShrink: 0 }}>📢</span>
@@ -288,17 +360,23 @@ export default function GroupChat() {
 
           {/* Announcement input */}
           {canAnnounce && showAnnouncementInput && (
-            <div style={{ marginBottom: '1rem', display: 'flex', gap: '0.5rem' }}>
-              <input
-                type="text"
-                placeholder="Write an announcement..."
-                value={newAnnouncement}
-                onChange={e => setNewAnnouncement(e.target.value)}
-                onKeyDown={e => e.key === 'Enter' && postAnnouncement()}
-                style={{ flex: 1, padding: '0.65rem 1rem', borderRadius: '10px', border: '1px solid rgba(245,158,11,0.3)', background: 'rgba(245,158,11,0.05)', color: 'white', fontFamily: 'Inter, sans-serif', fontSize: '0.9rem', outline: 'none' }}
-              />
+            <div style={{ marginBottom: '0.75rem', display: 'flex', gap: '0.5rem' }}>
+              <input type="text" placeholder="Write an announcement..." value={newAnnouncement} onChange={e => setNewAnnouncement(e.target.value)} onKeyDown={e => e.key === 'Enter' && postAnnouncement()} style={{ flex: 1, padding: '0.65rem 1rem', borderRadius: '10px', border: '1px solid rgba(245,158,11,0.3)', background: 'rgba(245,158,11,0.05)', color: 'white', fontFamily: 'Inter, sans-serif', fontSize: '0.9rem', outline: 'none' }} />
               <button onClick={postAnnouncement} style={{ padding: '0.65rem 1rem', background: 'rgba(245,158,11,0.2)', color: '#f59e0b', border: '1px solid rgba(245,158,11,0.3)', borderRadius: '10px', cursor: 'pointer', fontFamily: 'Inter, sans-serif', fontWeight: '600', fontSize: '0.85rem' }}>Post</button>
               <button onClick={() => setShowAnnouncementInput(false)} style={{ padding: '0.65rem 0.75rem', background: 'transparent', color: '#666', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '10px', cursor: 'pointer', fontFamily: 'Inter, sans-serif' }}>✕</button>
+            </div>
+          )}
+
+          {/* Event form */}
+          {canManageMembers && showEventForm && (
+            <div style={{ marginBottom: '0.75rem', background: 'rgba(16,185,129,0.05)', border: '1px solid rgba(16,185,129,0.2)', borderRadius: '12px', padding: '1rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+              <input type="text" placeholder="Event title..." value={newEvent.title} onChange={e => setNewEvent(p => ({ ...p, title: e.target.value }))} style={{ padding: '0.6rem 1rem', borderRadius: '8px', border: '1px solid rgba(16,185,129,0.2)', background: 'rgba(255,255,255,0.04)', color: 'white', fontFamily: 'Inter, sans-serif', fontSize: '0.9rem', outline: 'none' }} />
+              <input type="text" placeholder="Description (optional)" value={newEvent.description} onChange={e => setNewEvent(p => ({ ...p, description: e.target.value }))} style={{ padding: '0.6rem 1rem', borderRadius: '8px', border: '1px solid rgba(16,185,129,0.2)', background: 'rgba(255,255,255,0.04)', color: 'white', fontFamily: 'Inter, sans-serif', fontSize: '0.9rem', outline: 'none' }} />
+              <input type="datetime-local" value={newEvent.event_time} onChange={e => setNewEvent(p => ({ ...p, event_time: e.target.value }))} style={{ padding: '0.6rem 1rem', borderRadius: '8px', border: '1px solid rgba(16,185,129,0.2)', background: 'rgba(255,255,255,0.04)', color: 'white', fontFamily: 'Inter, sans-serif', fontSize: '0.9rem', outline: 'none' }} />
+              <div style={{ display: 'flex', gap: '0.5rem' }}>
+                <button onClick={createEvent} style={{ flex: 1, padding: '0.6rem', background: 'rgba(16,185,129,0.2)', color: '#10b981', border: '1px solid rgba(16,185,129,0.3)', borderRadius: '8px', cursor: 'pointer', fontFamily: 'Inter, sans-serif', fontWeight: '600' }}>Create Event</button>
+                <button onClick={() => setShowEventForm(false)} style={{ padding: '0.6rem 0.75rem', background: 'transparent', color: '#666', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', cursor: 'pointer', fontFamily: 'Inter, sans-serif' }}>✕</button>
+              </div>
             </div>
           )}
 
@@ -314,19 +392,46 @@ export default function GroupChat() {
               const senderMember = members.find(m => m.user_id === msg.sender_id)
               const senderRole = msg.sender_id === group?.leader_id ? 'leader' : senderMember?.role || 'member'
               const roleInfo = ROLE_CONFIG[senderRole]
+              const groupedRxns = getGroupedReactions(msg.id)
+              const hasReactions = Object.keys(groupedRxns).length > 0
+              const isHovered = hoveredMsg === msg.id
               return (
-                <div key={msg.id} style={{ display: 'flex', gap: '0.75rem', alignItems: 'flex-start', flexDirection: isMine ? 'row-reverse' : 'row' }}>
+                <div key={msg.id} style={{ display: 'flex', gap: '0.75rem', alignItems: 'flex-start', flexDirection: isMine ? 'row-reverse' : 'row' }}
+                  onMouseEnter={() => setHoveredMsg(msg.id)} onMouseLeave={() => setHoveredMsg(null)}>
                   <Avatar userId={msg.sender_id} size={32} />
-                  <div style={{ maxWidth: '65%' }}>
+                  <div style={{ maxWidth: '65%', display: 'flex', flexDirection: 'column', alignItems: isMine ? 'flex-end' : 'flex-start' }}>
                     {!isMine && (
                       <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.25rem' }}>
                         <p style={{ fontSize: '0.75rem', color: '#888' }}>{getName(msg.sender_id)}</p>
                         {senderRole !== 'member' && <span style={{ fontSize: '0.6rem', color: roleInfo.color }}>{roleInfo.label}</span>}
                       </div>
                     )}
-                    <div style={{ background: isMine ? 'linear-gradient(135deg, #6c63ff, #a78bfa)' : 'rgba(255,255,255,0.08)', color: 'white', padding: '0.65rem 1rem', borderRadius: isMine ? '18px 18px 4px 18px' : '18px 18px 18px 4px', fontSize: '0.95rem', lineHeight: 1.4 }}>
-                      {msg.content}
+                    <div style={{ display: 'flex', flexDirection: isMine ? 'row-reverse' : 'row', alignItems: 'center', gap: '0.4rem' }}>
+                      <div style={{ background: isMine ? 'linear-gradient(135deg, #6c63ff, #a78bfa)' : 'rgba(255,255,255,0.08)', color: 'white', padding: '0.65rem 1rem', borderRadius: isMine ? '18px 18px 4px 18px' : '18px 18px 18px 4px', fontSize: '0.95rem', lineHeight: 1.4 }}>
+                        {msg.content}
+                      </div>
+                      {isHovered && (
+                        <div style={{ position: 'relative' }}>
+                          <button onClick={(e) => { e.stopPropagation(); setEmojiPickerMsg(emojiPickerMsg === msg.id ? null : msg.id) }} style={{ background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.12)', color: 'white', borderRadius: '6px', padding: '0.25rem 0.4rem', cursor: 'pointer', fontSize: '0.8rem' }}>😊</button>
+                          {emojiPickerMsg === msg.id && (
+                            <div onClick={e => e.stopPropagation()} style={{ position: 'absolute', bottom: '110%', [isMine ? 'right' : 'left']: 0, background: '#1e1e2e', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '12px', padding: '0.5rem', display: 'flex', gap: '0.25rem', zIndex: 50, boxShadow: '0 4px 20px rgba(0,0,0,0.4)' }}>
+                              {EMOJI_OPTIONS.map(emoji => (
+                                <button key={emoji} onClick={() => toggleReaction(msg.id, emoji)} style={{ background: (reactions[msg.id] || []).some(r => r.emoji === emoji && r.user_id === currentUser?.id) ? 'rgba(108,99,255,0.3)' : 'transparent', border: 'none', borderRadius: '6px', padding: '0.3rem', cursor: 'pointer', fontSize: '1.2rem' }}>{emoji}</button>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </div>
+                    {hasReactions && (
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.25rem', marginTop: '0.3rem' }}>
+                        {Object.entries(groupedRxns).map(([emoji, userIds]) => (
+                          <button key={emoji} onClick={() => toggleReaction(msg.id, emoji)} style={{ background: userIds.includes(currentUser?.id) ? 'rgba(108,99,255,0.25)' : 'rgba(255,255,255,0.07)', border: userIds.includes(currentUser?.id) ? '1px solid rgba(108,99,255,0.4)' : '1px solid rgba(255,255,255,0.1)', borderRadius: '100px', padding: '0.15rem 0.5rem', cursor: 'pointer', fontSize: '0.8rem', color: 'white', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                            {emoji} <span style={{ fontSize: '0.7rem', opacity: 0.8 }}>{userIds.length}</span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 </div>
               )
@@ -335,9 +440,8 @@ export default function GroupChat() {
           </div>
 
           <div style={{ display: 'flex', gap: '0.75rem' }}>
-            {canAnnounce && (
-              <button onClick={() => setShowAnnouncementInput(!showAnnouncementInput)} style={{ padding: '0.85rem', background: showAnnouncementInput ? 'rgba(245,158,11,0.2)' : 'rgba(255,255,255,0.05)', color: showAnnouncementInput ? '#f59e0b' : '#a78bfa', border: showAnnouncementInput ? '1px solid rgba(245,158,11,0.3)' : '1px solid rgba(255,255,255,0.1)', borderRadius: '10px', cursor: 'pointer', fontSize: '1.1rem', lineHeight: 1 }}>📢</button>
-            )}
+            {canAnnounce && <button onClick={() => setShowAnnouncementInput(!showAnnouncementInput)} style={{ padding: '0.85rem', background: showAnnouncementInput ? 'rgba(245,158,11,0.2)' : 'rgba(255,255,255,0.05)', color: showAnnouncementInput ? '#f59e0b' : '#a78bfa', border: showAnnouncementInput ? '1px solid rgba(245,158,11,0.3)' : '1px solid rgba(255,255,255,0.1)', borderRadius: '10px', cursor: 'pointer', fontSize: '1.1rem', lineHeight: 1 }}>📢</button>}
+            {canManageMembers && <button onClick={() => setShowEventForm(!showEventForm)} style={{ padding: '0.85rem', background: showEventForm ? 'rgba(16,185,129,0.2)' : 'rgba(255,255,255,0.05)', color: showEventForm ? '#10b981' : '#a78bfa', border: showEventForm ? '1px solid rgba(16,185,129,0.3)' : '1px solid rgba(255,255,255,0.1)', borderRadius: '10px', cursor: 'pointer', fontSize: '1.1rem', lineHeight: 1 }}>📅</button>}
             <button onClick={() => setVoiceOpen(!voiceOpen)} style={{ padding: '0.85rem', background: voiceOpen ? 'rgba(16,185,129,0.15)' : 'rgba(255,255,255,0.05)', color: voiceOpen ? '#10b981' : '#a78bfa', border: voiceOpen ? '1px solid rgba(16,185,129,0.3)' : '1px solid rgba(255,255,255,0.1)', borderRadius: '10px', cursor: 'pointer', fontSize: '1.2rem', lineHeight: 1 }}>🎙️</button>
             <input type="text" placeholder="Message the group..." value={newMessage} onChange={e => setNewMessage(e.target.value)} onKeyDown={e => e.key === 'Enter' && sendMessage()} style={{ flex: 1, padding: '0.85rem 1rem', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.05)', color: 'white', fontFamily: 'Inter, sans-serif', fontSize: '0.95rem', outline: 'none' }} />
             <button onClick={sendMessage} style={{ padding: '0.85rem 1.5rem', background: 'linear-gradient(135deg, #6c63ff, #a78bfa)', color: 'white', border: 'none', borderRadius: '10px', cursor: 'pointer', fontFamily: 'Inter, sans-serif', fontWeight: '600' }}>Send</button>

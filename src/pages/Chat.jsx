@@ -29,8 +29,10 @@ export default function Chat() {
   const [hoveredMsg, setHoveredMsg] = useState(null)
   const [voiceOpen, setVoiceOpen] = useState(false)
   const [emojiPickerMsg, setEmojiPickerMsg] = useState(null)
+  const [replyTo, setReplyTo] = useState(null)
   const bottomRef = useRef(null)
   const fileInputRef = useRef(null)
+  const inputRef = useRef(null)
   const presenceChannelRef = useRef(null)
   const broadcastChannelRef = useRef(null)
   const typingTimeoutRef = useRef(null)
@@ -150,11 +152,27 @@ export default function Chat() {
     if (!newMessage.trim()) return
     const content = newMessage.trim()
     setNewMessage('')
+    setReplyTo(null)
     clearTimeout(typingTimeoutRef.current)
     broadcastChannelRef.current?.send({ type: 'broadcast', event: 'typing', payload: { typing: false, userId: currentUser.id } })
-    const tempMsg = { id: `temp-${Date.now()}`, sender_id: currentUser.id, receiver_id: userId, content, created_at: new Date(), read_at: null }
+    const tempMsg = {
+      id: `temp-${Date.now()}`,
+      sender_id: currentUser.id,
+      receiver_id: userId,
+      content,
+      created_at: new Date(),
+      read_at: null,
+      reply_to: replyTo?.id || null,
+      reply_content: replyTo?.content || null
+    }
     setMessages(prev => [...prev, tempMsg])
-    supabase.from('messages').insert({ sender_id: currentUser.id, receiver_id: userId, content }).select().single().then(({ data }) => {
+    supabase.from('messages').insert({
+      sender_id: currentUser.id,
+      receiver_id: userId,
+      content,
+      reply_to: replyTo?.id || null,
+      reply_content: replyTo?.content || null
+    }).select().single().then(({ data }) => {
       if (data) setMessages(prev => prev.map(m => m.id === tempMsg.id ? data : m))
     })
   }
@@ -213,6 +231,8 @@ export default function Chat() {
     return msg.content
   }
 
+  const truncate = (text, n = 40) => text?.startsWith('[image]') ? '📷 Image' : text?.length > n ? text.substring(0, n) + '...' : text
+
   const name = otherUser?.username || otherUser?.email?.split('@')[0] || 'Player'
   const avatarColors = ['#6c63ff', '#f59e0b', '#10b981', '#ef4444', '#3b82f6', '#ec4899']
   const color = avatarColors[name.charCodeAt(0) % avatarColors.length]
@@ -253,14 +273,24 @@ export default function Chat() {
           const hasReactions = Object.keys(groupedRxns).length > 0
           const isRead = isMine && msg.read_at && !isTemp
           return (
-            <div key={msg.id} style={{ alignSelf: isMine ? 'flex-end' : 'flex-start', display: 'flex', flexDirection: 'column', alignItems: isMine ? 'flex-end' : 'flex-start', maxWidth: '75%', position: 'relative' }}
+            <div key={msg.id}
+              style={{ alignSelf: isMine ? 'flex-end' : 'flex-start', display: 'flex', flexDirection: 'column', alignItems: isMine ? 'flex-end' : 'flex-start', maxWidth: '75%', position: 'relative' }}
               onMouseEnter={() => setHoveredMsg(msg.id)} onMouseLeave={() => setHoveredMsg(null)}>
               <div style={{ display: 'flex', flexDirection: isMine ? 'row-reverse' : 'row', alignItems: 'center', gap: '0.5rem' }}>
-                <div style={{ background: msg.content?.startsWith('[image]') ? 'transparent' : isMine ? 'linear-gradient(135deg, #6c63ff, #a78bfa)' : 'rgba(255,255,255,0.08)', color: 'white', padding: msg.content?.startsWith('[image]') ? '0' : '0.65rem 1rem', borderRadius: isMine ? '18px 18px 4px 18px' : '18px 18px 18px 4px', fontSize: '0.95rem', lineHeight: 1.4, opacity: isTemp ? 0.7 : 1 }}>
-                  {renderMessage(msg)}
+                <div style={{ display: 'flex', flexDirection: 'column' }}>
+                  {/* Reply preview */}
+                  {msg.reply_content && (
+                    <div style={{ background: 'rgba(255,255,255,0.06)', borderLeft: '3px solid #6c63ff', borderRadius: '6px', padding: '0.3rem 0.6rem', marginBottom: '0.25rem', fontSize: '0.75rem', color: '#aaa', maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      ↩ {truncate(msg.reply_content)}
+                    </div>
+                  )}
+                  <div style={{ background: msg.content?.startsWith('[image]') ? 'transparent' : isMine ? 'linear-gradient(135deg, #6c63ff, #a78bfa)' : 'rgba(255,255,255,0.08)', color: 'white', padding: msg.content?.startsWith('[image]') ? '0' : '0.65rem 1rem', borderRadius: isMine ? '18px 18px 4px 18px' : '18px 18px 18px 4px', fontSize: '0.95rem', lineHeight: 1.4, opacity: isTemp ? 0.7 : 1 }}>
+                    {renderMessage(msg)}
+                  </div>
                 </div>
                 {!isTemp && isHovered && (
                   <div style={{ display: 'flex', gap: '0.25rem', alignItems: 'center' }}>
+                    <button onClick={() => { setReplyTo(msg); inputRef.current?.focus() }} style={{ background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.12)', color: 'white', borderRadius: '6px', padding: '0.25rem 0.4rem', cursor: 'pointer', fontSize: '0.8rem' }}>↩</button>
                     <div style={{ position: 'relative' }}>
                       <button onClick={(e) => { e.stopPropagation(); setEmojiPickerMsg(emojiPickerMsg === msg.id ? null : msg.id) }} style={{ background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.12)', color: 'white', borderRadius: '6px', padding: '0.25rem 0.4rem', cursor: 'pointer', fontSize: '0.8rem' }}>😊</button>
                       {emojiPickerMsg === msg.id && (
@@ -275,7 +305,6 @@ export default function Chat() {
                   </div>
                 )}
               </div>
-              {/* Read receipt */}
               {isMine && !isTemp && (
                 <p style={{ fontSize: '0.65rem', color: isRead ? '#a78bfa' : '#555', marginTop: '0.2rem', textAlign: 'right' }}>
                   {isRead ? '✓✓ Read' : '✓ Sent'}
@@ -303,13 +332,21 @@ export default function Chat() {
         <div ref={bottomRef} />
       </div>
 
+      {/* Reply preview bar */}
+      {replyTo && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.5rem 1rem', background: 'rgba(108,99,255,0.08)', borderRadius: '10px', marginBottom: '0.5rem', border: '1px solid rgba(108,99,255,0.2)' }}>
+          <span style={{ color: '#a78bfa', fontSize: '0.85rem' }}>↩ Replying to: {truncate(replyTo.content)}</span>
+          <button onClick={() => setReplyTo(null)} style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer', marginLeft: 'auto', fontSize: '1rem' }}>✕</button>
+        </div>
+      )}
+
       <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
         <input type="file" accept="image/*" ref={fileInputRef} onChange={sendImage} style={{ display: 'none' }} />
         <button onClick={() => fileInputRef.current.click()} disabled={uploading} style={{ padding: '0.85rem', background: 'rgba(255,255,255,0.05)', color: uploading ? '#555' : '#a78bfa', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '10px', cursor: uploading ? 'default' : 'pointer', fontSize: '1.2rem', lineHeight: 1 }}>
           {uploading ? '⏳' : '📷'}
         </button>
         <button onClick={() => setVoiceOpen(!voiceOpen)} style={{ padding: '0.85rem', background: voiceOpen ? 'rgba(16,185,129,0.15)' : 'rgba(255,255,255,0.05)', color: voiceOpen ? '#10b981' : '#a78bfa', border: voiceOpen ? '1px solid rgba(16,185,129,0.3)' : '1px solid rgba(255,255,255,0.1)', borderRadius: '10px', cursor: 'pointer', fontSize: '1.2rem', lineHeight: 1 }}>🎙️</button>
-        <input type="text" placeholder="Type a message..." value={newMessage} onChange={handleTyping} onKeyDown={e => e.key === 'Enter' && sendMessage()} style={{ flex: 1, padding: '0.85rem 1rem', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.05)', color: 'white', fontFamily: 'Inter, sans-serif', fontSize: '0.95rem', outline: 'none' }} />
+        <input ref={inputRef} type="text" placeholder={replyTo ? `Replying to ${truncate(replyTo.content, 20)}...` : 'Type a message...'} value={newMessage} onChange={handleTyping} onKeyDown={e => e.key === 'Enter' && sendMessage()} style={{ flex: 1, padding: '0.85rem 1rem', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.05)', color: 'white', fontFamily: 'Inter, sans-serif', fontSize: '0.95rem', outline: 'none' }} />
         <button onClick={sendMessage} style={{ padding: '0.85rem 1.5rem', background: 'linear-gradient(135deg, #6c63ff, #a78bfa)', color: 'white', border: 'none', borderRadius: '10px', cursor: 'pointer', fontFamily: 'Inter, sans-serif', fontWeight: '600' }}>Send</button>
       </div>
 
