@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react"
 import { supabase } from "./supabaseClient"
-import { checkAndAwardAchievements } from "./achievements"
+import { checkAndAwardAchievements } from "./AchievementsPage"
 
 const ACHIEVEMENT_META = {
   first_connection: {
