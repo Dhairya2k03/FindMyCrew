@@ -34,6 +34,7 @@ export default function GroupChat() {
   const [hoveredMsg, setHoveredMsg] = useState(null)
   const [events, setEvents] = useState([])
   const [showEventForm, setShowEventForm] = useState(false)
+  const [onlineMembers, setOnlineMembers] = useState(new Set())
   const [newEvent, setNewEvent] = useState({ title: '', description: '', event_time: '' })
   const bottomRef = useRef(null)
 
@@ -81,6 +82,16 @@ export default function GroupChat() {
 
       const { data: eventsData } = await supabase.from('group_events').select('*').eq('group_id', groupId).order('event_time', { ascending: true })
       setEvents(eventsData || [])
+
+      // Setup presence for online count
+      const presenceCh = supabase.channel('group-presence-' + groupId, { config: { presence: { key: user.id } } })
+      presenceCh
+        .on('presence', { event: 'sync' }, () => {
+          setOnlineMembers(new Set(Object.keys(presenceCh.presenceState())))
+        })
+        .on('presence', { event: 'join' }, ({ key }) => setOnlineMembers(prev => new Set([...prev, key])))
+        .on('presence', { event: 'leave' }, ({ key }) => setOnlineMembers(prev => { const n = new Set(prev); n.delete(key); return n }))
+        .subscribe(async (status) => { if (status === 'SUBSCRIBED') await presenceCh.track({ online_at: new Date().toISOString() }) })
     }
     load()
   }, [groupId])
@@ -307,7 +318,7 @@ export default function GroupChat() {
       )}
 
       <div>
-        <p style={{ color: '#aaa', fontWeight: '600', fontSize: '0.8rem', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.75rem' }}>Members ({members.length + 1})</p>
+        <p style={{ color: '#aaa', fontWeight: '600', fontSize: '0.8rem', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.75rem' }}>Members ({members.length + 1}) · 🟢 {onlineMembers.size} online</p>
         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.5rem', borderRadius: '8px', background: 'rgba(245,158,11,0.08)' }}>
             <Avatar userId={group?.leader_id} />

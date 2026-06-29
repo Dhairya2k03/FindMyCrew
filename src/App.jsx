@@ -17,7 +17,7 @@ import UserProfile from './pages/UserProfile'
 import Notifications from './pages/Notifications'
 import Search from './pages/Search'
 import Messages from './pages/Messages'
-import AchievementsPage from "./pages/AchievementsPage";
+import AchievementsPage from './pages/AchievementsPage'
 
 function ProtectedRoute({ user, children }) {
   if (!user) return <Navigate to="/login" />
@@ -27,6 +27,12 @@ function ProtectedRoute({ user, children }) {
 export default function App() {
   const [user, setUser] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [theme, setTheme] = useState(() => localStorage.getItem('theme') || 'dark')
+
+  useEffect(() => {
+    document.body.classList.toggle('light', theme === 'light')
+    localStorage.setItem('theme', theme)
+  }, [theme])
 
   useEffect(() => {
     supabase.auth.getUser().then(({ data: { user } }) => {
@@ -42,7 +48,7 @@ export default function App() {
 
   return (
     <BrowserRouter>
-      <Navbar />
+      <Navbar theme={theme} setTheme={setTheme} />
       <Routes>
         <Route path="/login" element={user ? <Navigate to="/" /> : <Login />} />
         <Route path="/" element={<ProtectedRoute user={user}><Home /></ProtectedRoute>} />
@@ -59,8 +65,8 @@ export default function App() {
         <Route path="/user/:userId" element={<ProtectedRoute user={user}><UserProfile /></ProtectedRoute>} />
         <Route path="/notifications" element={<ProtectedRoute user={user}><Notifications /></ProtectedRoute>} />
         <Route path="/search" element={<ProtectedRoute user={user}><Search /></ProtectedRoute>} />
+        <Route path="/achievements" element={<ProtectedRoute user={user}><AchievementsPage /></ProtectedRoute>} />
         <Route path="*" element={<Navigate to={user ? "/" : "/login"} />} />
-        <Route path="/achievements" element={<AchievementsPage />} />
       </Routes>
     </BrowserRouter>
   )
