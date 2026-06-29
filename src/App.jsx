@@ -51,21 +51,21 @@ export default function App() {
       <Navbar theme={theme} setTheme={setTheme} />
       <Routes>
         <Route path="/login" element={user ? <Navigate to="/" /> : <Login />} />
-        <Route path="/" element={<ProtectedRoute user={user}><Home /></ProtectedRoute>} />
-        <Route path="/browse" element={<ProtectedRoute user={user}><Browse /></ProtectedRoute>} />
-        <Route path="/profile" element={<ProtectedRoute user={user}><Profile /></ProtectedRoute>} />
-        <Route path="/connections" element={<ProtectedRoute user={user}><Connections /></ProtectedRoute>} />
-        <Route path="/chat/:userId" element={<ProtectedRoute user={user}><Chat /></ProtectedRoute>} />
-        <Route path="/game-levels" element={<ProtectedRoute user={user}><GameLevels /></ProtectedRoute>} />
-        <Route path="/groups" element={<ProtectedRoute user={user}><Groups /></ProtectedRoute>} />
-        <Route path="/groups/:groupId" element={<ProtectedRoute user={user}><GroupChat /></ProtectedRoute>} />
-        <Route path="/invite/:inviteCode" element={<ProtectedRoute user={user}><InvitePage /></ProtectedRoute>} />
+        <Route path="/" element={<ProtectedRoute user={user}><Home theme={theme} /></ProtectedRoute>} />
+        <Route path="/browse" element={<ProtectedRoute user={user}><Browse theme={theme} /></ProtectedRoute>} />
+        <Route path="/profile" element={<ProtectedRoute user={user}><Profile theme={theme} /></ProtectedRoute>} />
+        <Route path="/connections" element={<ProtectedRoute user={user}><Connections theme={theme} /></ProtectedRoute>} />
+        <Route path="/chat/:userId" element={<ProtectedRoute user={user}><Chat theme={theme} /></ProtectedRoute>} />
+        <Route path="/game-levels" element={<ProtectedRoute user={user}><GameLevels theme={theme} /></ProtectedRoute>} />
+        <Route path="/groups" element={<ProtectedRoute user={user}><Groups theme={theme} /></ProtectedRoute>} />
+        <Route path="/groups/:groupId" element={<ProtectedRoute user={user}><GroupChat theme={theme} /></ProtectedRoute>} />
+        <Route path="/invite/:inviteCode" element={<ProtectedRoute user={user}><InvitePage theme={theme} /></ProtectedRoute>} />
         <Route path="/reset-password" element={<ResetPassword />} />
-        <Route path="/messages" element={<ProtectedRoute user={user}><Messages /></ProtectedRoute>} />
-        <Route path="/user/:userId" element={<ProtectedRoute user={user}><UserProfile /></ProtectedRoute>} />
-        <Route path="/notifications" element={<ProtectedRoute user={user}><Notifications /></ProtectedRoute>} />
-        <Route path="/search" element={<ProtectedRoute user={user}><Search /></ProtectedRoute>} />
-        <Route path="/achievements" element={<ProtectedRoute user={user}><AchievementsPage /></ProtectedRoute>} />
+        <Route path="/messages" element={<ProtectedRoute user={user}><Messages theme={theme} /></ProtectedRoute>} />
+        <Route path="/user/:userId" element={<ProtectedRoute user={user}><UserProfile theme={theme} /></ProtectedRoute>} />
+        <Route path="/notifications" element={<ProtectedRoute user={user}><Notifications theme={theme} /></ProtectedRoute>} />
+        <Route path="/search" element={<ProtectedRoute user={user}><Search theme={theme} /></ProtectedRoute>} />
+        <Route path="/achievements" element={<ProtectedRoute user={user}><AchievementsPage theme={theme} /></ProtectedRoute>} />
         <Route path="*" element={<Navigate to={user ? "/" : "/login"} />} />
       </Routes>
     </BrowserRouter>
