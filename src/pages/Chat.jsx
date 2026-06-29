@@ -16,7 +16,7 @@ const formatLastSeen = (date) => {
 
 const EMOJI_OPTIONS = ['❤️', '😂', '😮', '😢', '👍', '🔥']
 
-export default function Chat() {
+export default function Chat({ theme }) {
   const { userId } = useParams()
   const [messages, setMessages] = useState([])
   const [reactions, setReactions] = useState({})
@@ -30,15 +30,25 @@ export default function Chat() {
   const [voiceOpen, setVoiceOpen] = useState(false)
   const [emojiPickerMsg, setEmojiPickerMsg] = useState(null)
   const [replyTo, setReplyTo] = useState(null)
+  const [pinnedMessage, setPinnedMessage] = useState(null)
+  const [showPinned, setShowPinned] = useState(true)
   const bottomRef = useRef(null)
   const fileInputRef = useRef(null)
   const inputRef = useRef(null)
   const presenceChannelRef = useRef(null)
   const broadcastChannelRef = useRef(null)
   const typingTimeoutRef = useRef(null)
-  const userIdRef = useRef(userId)
 
-  useEffect(() => { userIdRef.current = userId }, [userId])
+  const isLight = theme === 'light'
+  const chatBg     = isLight ? 'rgba(0,0,0,0.03)'       : 'rgba(255,255,255,0.03)'
+  const chatBorder = isLight ? 'rgba(0,0,0,0.08)'        : 'rgba(255,255,255,0.08)'
+  const inputBg    = isLight ? 'rgba(0,0,0,0.04)'        : 'rgba(255,255,255,0.05)'
+  const inputBorder= isLight ? 'rgba(0,0,0,0.1)'         : 'rgba(255,255,255,0.1)'
+  const textColor  = isLight ? '#111'                     : 'white'
+  const mutedColor = isLight ? '#555'                     : '#888'
+  const bubbleOther= isLight ? 'rgba(0,0,0,0.07)'        : 'rgba(255,255,255,0.08)'
+  const actionBtn  = isLight ? 'rgba(0,0,0,0.06)'        : 'rgba(255,255,255,0.08)'
+  const actionBorder=isLight ? 'rgba(0,0,0,0.12)'        : 'rgba(255,255,255,0.12)'
 
   useEffect(() => {
     const load = async () => {
@@ -66,6 +76,11 @@ export default function Chat() {
       }
 
       supabase.from('messages').update({ read_at: new Date().toISOString() }).eq('receiver_id', user.id).eq('sender_id', userId).is('read_at', null).then(() => {})
+
+      // Load pinned message for this DM
+      const chatId = [user.id, userId].sort().join('-')
+      const { data: pinned } = await supabase.from('pinned_messages').select('*').eq('chat_type', 'dm').eq('chat_id', chatId).order('created_at', { ascending: false }).limit(1).single()
+      if (pinned) setPinnedMessage(pinned)
 
       const presenceChannel = supabase.channel(`presence-${[user.id, userId].sort().join('-')}`, { config: { presence: { key: user.id } } })
       presenceChannel
@@ -182,6 +197,27 @@ export default function Chat() {
     await supabase.from('messages').delete().eq('id', msgId)
   }
 
+  const pinMessage = async (msg) => {
+    const chatId = [currentUser.id, userId].sort().join('-')
+    // Remove existing pin first
+    await supabase.from('pinned_messages').delete().eq('chat_type', 'dm').eq('chat_id', chatId)
+    const { data } = await supabase.from('pinned_messages').insert({
+      chat_type: 'dm',
+      chat_id: chatId,
+      message_id: msg.id,
+      message_content: msg.content,
+      pinned_by: currentUser.id
+    }).select().single()
+    if (data) { setPinnedMessage(data); setShowPinned(true) }
+  }
+
+  const unpinMessage = async () => {
+    if (!currentUser) return
+    const chatId = [currentUser.id, userId].sort().join('-')
+    await supabase.from('pinned_messages').delete().eq('chat_type', 'dm').eq('chat_id', chatId)
+    setPinnedMessage(null)
+  }
+
   const toggleReaction = async (msgId, emoji) => {
     if (!currentUser) return
     const existing = (reactions[msgId] || []).find(r => r.user_id === currentUser.id && r.emoji === emoji)
@@ -246,21 +282,38 @@ export default function Chat() {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 64px)', maxWidth: '700px', margin: '0 auto', padding: '1.5rem' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '1.5rem', padding: '1rem 1.5rem', background: 'rgba(255,255,255,0.03)', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.08)' }}>
+      {/* Header */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '1rem', padding: '1rem 1.5rem', background: chatBg, borderRadius: '12px', border: `1px solid ${chatBorder}` }}>
         {otherUser?.avatar_url ? (
           <img src={otherUser.avatar_url} alt={name} style={{ width: '40px', height: '40px', borderRadius: '50%', objectFit: 'cover' }} />
         ) : (
-          <div style={{ width: '40px', height: '40px', borderRadius: '50%', background: color, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: '700' }}>{name[0]?.toUpperCase()}</div>
+          <div style={{ width: '40px', height: '40px', borderRadius: '50%', background: color, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: '700', color: 'white' }}>{name[0]?.toUpperCase()}</div>
         )}
         <div>
-          <p style={{ fontWeight: '600', margin: 0 }}>{name}</p>
+          <p style={{ fontWeight: '600', margin: 0, color: textColor }}>{name}</p>
           <p style={{ fontSize: '0.8rem', color: status.color, margin: 0 }}>{status.text}</p>
         </div>
       </div>
 
+      {/* Pinned message banner */}
+      {pinnedMessage && showPinned && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.6rem 1rem', background: isLight ? 'rgba(108,99,255,0.08)' : 'rgba(108,99,255,0.1)', border: '1px solid rgba(108,99,255,0.25)', borderRadius: '10px', marginBottom: '0.75rem' }}>
+          <span style={{ fontSize: '0.85rem' }}>📌</span>
+          <p style={{ flex: 1, fontSize: '0.85rem', color: '#a78bfa', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{truncate(pinnedMessage.message_content, 60)}</p>
+          <button onClick={unpinMessage} title="Unpin" style={{ background: 'none', border: 'none', color: mutedColor, cursor: 'pointer', fontSize: '0.75rem', padding: '0 0.25rem' }}>✕</button>
+          <button onClick={() => setShowPinned(false)} style={{ background: 'none', border: 'none', color: mutedColor, cursor: 'pointer', fontSize: '0.75rem' }}>▲</button>
+        </div>
+      )}
+      {pinnedMessage && !showPinned && (
+        <button onClick={() => setShowPinned(true)} style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', background: 'none', border: 'none', color: '#a78bfa', cursor: 'pointer', fontSize: '0.8rem', marginBottom: '0.5rem', padding: 0 }}>
+          📌 Show pinned message
+        </button>
+      )}
+
+      {/* Messages */}
       <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '0.75rem', marginBottom: '1rem', padding: '0.5rem' }}>
         {messages.length === 0 && (
-          <div style={{ textAlign: 'center', color: '#888', marginTop: '3rem' }}>
+          <div style={{ textAlign: 'center', color: mutedColor, marginTop: '3rem' }}>
             <p style={{ fontSize: '2rem', marginBottom: '0.5rem' }}>👋</p>
             <p>Say hi to {name}!</p>
           </div>
@@ -272,29 +325,30 @@ export default function Chat() {
           const groupedRxns = getGroupedReactions(msg.id)
           const hasReactions = Object.keys(groupedRxns).length > 0
           const isRead = isMine && msg.read_at && !isTemp
+          const isPinned = pinnedMessage?.message_id === msg.id
           return (
             <div key={msg.id}
               style={{ alignSelf: isMine ? 'flex-end' : 'flex-start', display: 'flex', flexDirection: 'column', alignItems: isMine ? 'flex-end' : 'flex-start', maxWidth: '75%', position: 'relative' }}
               onMouseEnter={() => setHoveredMsg(msg.id)} onMouseLeave={() => setHoveredMsg(null)}>
               <div style={{ display: 'flex', flexDirection: isMine ? 'row-reverse' : 'row', alignItems: 'center', gap: '0.5rem' }}>
                 <div style={{ display: 'flex', flexDirection: 'column' }}>
-                  {/* Reply preview */}
                   {msg.reply_content && (
-                    <div style={{ background: 'rgba(255,255,255,0.06)', borderLeft: '3px solid #6c63ff', borderRadius: '6px', padding: '0.3rem 0.6rem', marginBottom: '0.25rem', fontSize: '0.75rem', color: '#aaa', maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    <div style={{ background: isLight ? 'rgba(0,0,0,0.05)' : 'rgba(255,255,255,0.06)', borderLeft: '3px solid #6c63ff', borderRadius: '6px', padding: '0.3rem 0.6rem', marginBottom: '0.25rem', fontSize: '0.75rem', color: mutedColor, maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       ↩ {truncate(msg.reply_content)}
                     </div>
                   )}
-                  <div style={{ background: msg.content?.startsWith('[image]') ? 'transparent' : isMine ? 'linear-gradient(135deg, #6c63ff, #a78bfa)' : 'rgba(255,255,255,0.08)', color: 'white', padding: msg.content?.startsWith('[image]') ? '0' : '0.65rem 1rem', borderRadius: isMine ? '18px 18px 4px 18px' : '18px 18px 18px 4px', fontSize: '0.95rem', lineHeight: 1.4, opacity: isTemp ? 0.7 : 1 }}>
+                  <div style={{ background: msg.content?.startsWith('[image]') ? 'transparent' : isMine ? 'linear-gradient(135deg, #6c63ff, #a78bfa)' : bubbleOther, color: isMine ? 'white' : textColor, padding: msg.content?.startsWith('[image]') ? '0' : '0.65rem 1rem', borderRadius: isMine ? '18px 18px 4px 18px' : '18px 18px 18px 4px', fontSize: '0.95rem', lineHeight: 1.4, opacity: isTemp ? 0.7 : 1, outline: isPinned ? '2px solid rgba(108,99,255,0.4)' : 'none' }}>
                     {renderMessage(msg)}
                   </div>
                 </div>
                 {!isTemp && isHovered && (
                   <div style={{ display: 'flex', gap: '0.25rem', alignItems: 'center' }}>
-                    <button onClick={() => { setReplyTo(msg); inputRef.current?.focus() }} style={{ background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.12)', color: 'white', borderRadius: '6px', padding: '0.25rem 0.4rem', cursor: 'pointer', fontSize: '0.8rem' }}>↩</button>
+                    <button onClick={() => { setReplyTo(msg); inputRef.current?.focus() }} style={{ background: actionBtn, border: `1px solid ${actionBorder}`, color: textColor, borderRadius: '6px', padding: '0.25rem 0.4rem', cursor: 'pointer', fontSize: '0.8rem' }}>↩</button>
+                    <button onClick={() => pinMessage(msg)} title="Pin message" style={{ background: actionBtn, border: `1px solid ${actionBorder}`, color: isPinned ? '#a78bfa' : textColor, borderRadius: '6px', padding: '0.25rem 0.4rem', cursor: 'pointer', fontSize: '0.8rem' }}>📌</button>
                     <div style={{ position: 'relative' }}>
-                      <button onClick={(e) => { e.stopPropagation(); setEmojiPickerMsg(emojiPickerMsg === msg.id ? null : msg.id) }} style={{ background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.12)', color: 'white', borderRadius: '6px', padding: '0.25rem 0.4rem', cursor: 'pointer', fontSize: '0.8rem' }}>😊</button>
+                      <button onClick={(e) => { e.stopPropagation(); setEmojiPickerMsg(emojiPickerMsg === msg.id ? null : msg.id) }} style={{ background: actionBtn, border: `1px solid ${actionBorder}`, color: textColor, borderRadius: '6px', padding: '0.25rem 0.4rem', cursor: 'pointer', fontSize: '0.8rem' }}>😊</button>
                       {emojiPickerMsg === msg.id && (
-                        <div onClick={e => e.stopPropagation()} style={{ position: 'absolute', bottom: '110%', [isMine ? 'right' : 'left']: 0, background: '#1e1e2e', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '12px', padding: '0.5rem', display: 'flex', gap: '0.25rem', zIndex: 50, boxShadow: '0 4px 20px rgba(0,0,0,0.4)' }}>
+                        <div onClick={e => e.stopPropagation()} style={{ position: 'absolute', bottom: '110%', [isMine ? 'right' : 'left']: 0, background: isLight ? '#f0f0f7' : '#1e1e2e', border: `1px solid ${chatBorder}`, borderRadius: '12px', padding: '0.5rem', display: 'flex', gap: '0.25rem', zIndex: 50, boxShadow: '0 4px 20px rgba(0,0,0,0.4)' }}>
                           {EMOJI_OPTIONS.map(emoji => (
                             <button key={emoji} onClick={() => toggleReaction(msg.id, emoji)} style={{ background: (reactions[msg.id] || []).some(r => r.emoji === emoji && r.user_id === currentUser?.id) ? 'rgba(108,99,255,0.3)' : 'transparent', border: 'none', borderRadius: '6px', padding: '0.3rem', cursor: 'pointer', fontSize: '1.2rem' }}>{emoji}</button>
                           ))}
@@ -306,14 +360,14 @@ export default function Chat() {
                 )}
               </div>
               {isMine && !isTemp && (
-                <p style={{ fontSize: '0.65rem', color: isRead ? '#a78bfa' : '#555', marginTop: '0.2rem', textAlign: 'right' }}>
+                <p style={{ fontSize: '0.65rem', color: isRead ? '#a78bfa' : mutedColor, marginTop: '0.2rem', textAlign: 'right' }}>
                   {isRead ? '✓✓ Read' : '✓ Sent'}
                 </p>
               )}
               {hasReactions && (
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.25rem', marginTop: '0.3rem' }}>
                   {Object.entries(groupedRxns).map(([emoji, userIds]) => (
-                    <button key={emoji} onClick={() => toggleReaction(msg.id, emoji)} style={{ background: userIds.includes(currentUser?.id) ? 'rgba(108,99,255,0.25)' : 'rgba(255,255,255,0.07)', border: userIds.includes(currentUser?.id) ? '1px solid rgba(108,99,255,0.4)' : '1px solid rgba(255,255,255,0.1)', borderRadius: '100px', padding: '0.15rem 0.5rem', cursor: 'pointer', fontSize: '0.8rem', color: 'white', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                    <button key={emoji} onClick={() => toggleReaction(msg.id, emoji)} style={{ background: userIds.includes(currentUser?.id) ? 'rgba(108,99,255,0.25)' : isLight ? 'rgba(0,0,0,0.05)' : 'rgba(255,255,255,0.07)', border: userIds.includes(currentUser?.id) ? '1px solid rgba(108,99,255,0.4)' : `1px solid ${chatBorder}`, borderRadius: '100px', padding: '0.15rem 0.5rem', cursor: 'pointer', fontSize: '0.8rem', color: textColor, display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
                       {emoji} <span style={{ fontSize: '0.7rem', opacity: 0.8 }}>{userIds.length}</span>
                     </button>
                   ))}
@@ -323,7 +377,7 @@ export default function Chat() {
           )
         })}
         {isOtherTyping && (
-          <div style={{ alignSelf: 'flex-start', background: 'rgba(255,255,255,0.08)', padding: '0.65rem 1rem', borderRadius: '18px 18px 18px 4px', display: 'flex', gap: '4px', alignItems: 'center' }}>
+          <div style={{ alignSelf: 'flex-start', background: bubbleOther, padding: '0.65rem 1rem', borderRadius: '18px 18px 18px 4px', display: 'flex', gap: '4px', alignItems: 'center' }}>
             <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#a78bfa', animation: 'bounce 1s infinite' }} />
             <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#a78bfa', animation: 'bounce 1s infinite 0.2s' }} />
             <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#a78bfa', animation: 'bounce 1s infinite 0.4s' }} />
@@ -332,21 +386,20 @@ export default function Chat() {
         <div ref={bottomRef} />
       </div>
 
-      {/* Reply preview bar */}
       {replyTo && (
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.5rem 1rem', background: 'rgba(108,99,255,0.08)', borderRadius: '10px', marginBottom: '0.5rem', border: '1px solid rgba(108,99,255,0.2)' }}>
           <span style={{ color: '#a78bfa', fontSize: '0.85rem' }}>↩ Replying to: {truncate(replyTo.content)}</span>
-          <button onClick={() => setReplyTo(null)} style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer', marginLeft: 'auto', fontSize: '1rem' }}>✕</button>
+          <button onClick={() => setReplyTo(null)} style={{ background: 'none', border: 'none', color: mutedColor, cursor: 'pointer', marginLeft: 'auto', fontSize: '1rem' }}>✕</button>
         </div>
       )}
 
       <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
         <input type="file" accept="image/*" ref={fileInputRef} onChange={sendImage} style={{ display: 'none' }} />
-        <button onClick={() => fileInputRef.current.click()} disabled={uploading} style={{ padding: '0.85rem', background: 'rgba(255,255,255,0.05)', color: uploading ? '#555' : '#a78bfa', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '10px', cursor: uploading ? 'default' : 'pointer', fontSize: '1.2rem', lineHeight: 1 }}>
+        <button onClick={() => fileInputRef.current.click()} disabled={uploading} style={{ padding: '0.85rem', background: inputBg, color: uploading ? mutedColor : '#a78bfa', border: `1px solid ${inputBorder}`, borderRadius: '10px', cursor: uploading ? 'default' : 'pointer', fontSize: '1.2rem', lineHeight: 1 }}>
           {uploading ? '⏳' : '📷'}
         </button>
-        <button onClick={() => setVoiceOpen(!voiceOpen)} style={{ padding: '0.85rem', background: voiceOpen ? 'rgba(16,185,129,0.15)' : 'rgba(255,255,255,0.05)', color: voiceOpen ? '#10b981' : '#a78bfa', border: voiceOpen ? '1px solid rgba(16,185,129,0.3)' : '1px solid rgba(255,255,255,0.1)', borderRadius: '10px', cursor: 'pointer', fontSize: '1.2rem', lineHeight: 1 }}>🎙️</button>
-        <input ref={inputRef} type="text" placeholder={replyTo ? `Replying to ${truncate(replyTo.content, 20)}...` : 'Type a message...'} value={newMessage} onChange={handleTyping} onKeyDown={e => e.key === 'Enter' && sendMessage()} style={{ flex: 1, padding: '0.85rem 1rem', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.05)', color: 'white', fontFamily: 'Inter, sans-serif', fontSize: '0.95rem', outline: 'none' }} />
+        <button onClick={() => setVoiceOpen(!voiceOpen)} style={{ padding: '0.85rem', background: voiceOpen ? 'rgba(16,185,129,0.15)' : inputBg, color: voiceOpen ? '#10b981' : '#a78bfa', border: voiceOpen ? '1px solid rgba(16,185,129,0.3)' : `1px solid ${inputBorder}`, borderRadius: '10px', cursor: 'pointer', fontSize: '1.2rem', lineHeight: 1 }}>🎙️</button>
+        <input ref={inputRef} type="text" placeholder={replyTo ? `Replying to ${truncate(replyTo.content, 20)}...` : 'Type a message...'} value={newMessage} onChange={handleTyping} onKeyDown={e => e.key === 'Enter' && sendMessage()} style={{ flex: 1, padding: '0.85rem 1rem', borderRadius: '10px', border: `1px solid ${inputBorder}`, background: inputBg, color: textColor, fontFamily: 'Inter, sans-serif', fontSize: '0.95rem', outline: 'none' }} />
         <button onClick={sendMessage} style={{ padding: '0.85rem 1.5rem', background: 'linear-gradient(135deg, #6c63ff, #a78bfa)', color: 'white', border: 'none', borderRadius: '10px', cursor: 'pointer', fontFamily: 'Inter, sans-serif', fontWeight: '600' }}>Send</button>
       </div>
 
