@@ -22,6 +22,7 @@ export default function GroupChat({ theme }) {
   const [newMessage, setNewMessage] = useState('')
   const [currentUser, setCurrentUser] = useState(null)
   const [myRole, setMyRole] = useState('member')
+  const [myMembershipId, setMyMembershipId] = useState(null)
   const [profiles, setProfiles] = useState({})
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [roleMenuOpen, setRoleMenuOpen] = useState(null)
@@ -43,16 +44,15 @@ export default function GroupChat({ theme }) {
   const bottomRef = useRef(null)
 
   const isLight = theme === 'light'
-  const bg        = isLight ? '#f0f0f7'                    : '#0f0f1a'
-  const cardBg    = isLight ? 'rgba(0,0,0,0.03)'          : 'rgba(255,255,255,0.03)'
-  const border    = isLight ? 'rgba(0,0,0,0.08)'          : 'rgba(255,255,255,0.08)'
-  const textColor = isLight ? '#111'                       : 'white'
-  const mutedColor= isLight ? '#555'                       : '#888'
-  const inputBg   = isLight ? 'rgba(0,0,0,0.04)'          : 'rgba(255,255,255,0.05)'
-  const inputBorder=isLight ? 'rgba(0,0,0,0.1)'           : 'rgba(255,255,255,0.1)'
-  const bubbleOther=isLight ? 'rgba(0,0,0,0.07)'          : 'rgba(255,255,255,0.08)'
-  const actionBtn = isLight ? 'rgba(0,0,0,0.06)'          : 'rgba(255,255,255,0.08)'
-  const actionBord= isLight ? 'rgba(0,0,0,0.12)'          : 'rgba(255,255,255,0.12)'
+  const bg         = isLight ? '#f0f0f7'                 : '#0f0f1a'
+  const border     = isLight ? 'rgba(0,0,0,0.08)'        : 'rgba(255,255,255,0.08)'
+  const textColor  = isLight ? '#111'                    : 'white'
+  const mutedColor = isLight ? '#555'                    : '#888'
+  const inputBg    = isLight ? 'rgba(0,0,0,0.04)'        : 'rgba(255,255,255,0.05)'
+  const inputBorder= isLight ? 'rgba(0,0,0,0.1)'         : 'rgba(255,255,255,0.1)'
+  const bubbleOther= isLight ? 'rgba(0,0,0,0.07)'        : 'rgba(255,255,255,0.08)'
+  const actionBtn  = isLight ? 'rgba(0,0,0,0.06)'        : 'rgba(255,255,255,0.08)'
+  const actionBord = isLight ? 'rgba(0,0,0,0.12)'        : 'rgba(255,255,255,0.12)'
 
   useEffect(() => {
     const load = async () => {
@@ -72,6 +72,7 @@ export default function GroupChat({ theme }) {
       } else {
         const me = accepted.find(m => m.user_id === user.id)
         setMyRole(me?.role || 'member')
+        setMyMembershipId(me?.id || null)
       }
       const memberIds = [...new Set([...(allMembers || []).map(m => m.user_id), groupData?.leader_id])]
       if (memberIds.length > 0) {
@@ -82,7 +83,6 @@ export default function GroupChat({ theme }) {
       }
       const { data: announcementsData } = await supabase.from('group_announcements').select('*').eq('group_id', groupId).order('created_at', { ascending: false })
       setAnnouncements(announcementsData || [])
-
       if (msgs && msgs.length > 0) {
         const msgIds = msgs.map(m => m.id)
         const { data: rxns } = await supabase.from('group_message_reactions').select('*').in('message_id', msgIds)
@@ -95,14 +95,10 @@ export default function GroupChat({ theme }) {
           setReactions(grouped)
         }
       }
-
       const { data: eventsData } = await supabase.from('group_events').select('*').eq('group_id', groupId).order('event_time', { ascending: true })
       setEvents(eventsData || [])
-
-      // Load pinned message for this group
       const { data: pinned } = await supabase.from('pinned_messages').select('*').eq('chat_type', 'group').eq('chat_id', groupId).order('created_at', { ascending: false }).limit(1).single()
       if (pinned) setPinnedMessage(pinned)
-
       const presenceCh = supabase.channel('group-presence-' + groupId, { config: { presence: { key: user.id } } })
       presenceCh
         .on('presence', { event: 'sync' }, () => { setOnlineMembers(new Set(Object.keys(presenceCh.presenceState()))) })
@@ -160,16 +156,19 @@ export default function GroupChat({ theme }) {
     if (data) setMessages(prev => prev.map(m => m.id === tempMsg.id ? data : m))
   }
 
+  const leaveGroup = async () => {
+    if (!myMembershipId) return
+    if (!window.confirm('Are you sure you want to leave this group?')) return
+    await supabase.from('group_members').delete().eq('id', myMembershipId)
+    navigate('/groups')
+  }
+
   const pinMessage = async (msg) => {
-    // Only leader/admin can pin
     if (myRole !== 'leader' && myRole !== 'admin') return
     await supabase.from('pinned_messages').delete().eq('chat_type', 'group').eq('chat_id', groupId)
     const { data } = await supabase.from('pinned_messages').insert({
-      chat_type: 'group',
-      chat_id: groupId,
-      message_id: msg.id,
-      message_content: msg.content,
-      pinned_by: currentUser.id
+      chat_type: 'group', chat_id: groupId, message_id: msg.id,
+      message_content: msg.content, pinned_by: currentUser.id
     }).select().single()
     if (data) { setPinnedMessage(data); setShowPinned(true) }
   }
@@ -181,23 +180,16 @@ export default function GroupChat({ theme }) {
 
   const submitReport = async (msg) => {
     if (!reportReason.trim()) return alert('Please enter a reason')
-    // Find group admin/leader to notify
     const adminId = group?.leader_id
-    // Insert report
     await supabase.from('reports').insert({
-      reporter_id: currentUser.id,
-      reported_user_id: msg.sender_id,
-      context_type: 'group_message',
-      context_id: groupId,
-      message_content: msg.content,
-      reason: reportReason.trim()
+      reporter_id: currentUser.id, reported_user_id: msg.sender_id,
+      context_type: 'group_message', context_id: groupId,
+      message_content: msg.content, reason: reportReason.trim()
     })
-    // Notify group leader
     const reporterName = profiles[currentUser.id]?.username || 'Someone'
     const reportedName = profiles[msg.sender_id]?.username || 'a member'
     await supabase.from('notifications').insert({
-      user_id: adminId,
-      type: 'report',
+      user_id: adminId, type: 'report',
       content: `🚨 ${reporterName} reported ${reportedName} in "${group?.name}": "${reportReason.trim()}"`,
       read: false
     })
@@ -338,8 +330,17 @@ export default function GroupChat({ theme }) {
         {canManageMembers && <button onClick={generateInvite} style={{ width: '100%', padding: '0.6rem', background: 'rgba(108,99,255,0.15)', color: '#a78bfa', border: '1px solid rgba(108,99,255,0.3)', borderRadius: '8px', cursor: 'pointer', fontFamily: 'Inter, sans-serif', fontWeight: '600', fontSize: '0.85rem', marginBottom: '0.75rem' }}>🔗 Copy Invite Link</button>}
         <h3 style={{ fontWeight: '700', fontSize: '1.1rem', marginBottom: '0.25rem', color: textColor }}>{group?.name}</h3>
         <p style={{ color: '#a78bfa', fontSize: '0.85rem' }}>{group?.game}</p>
-        <div style={{ marginTop: '0.5rem' }}>
+        <div style={{ marginTop: '0.5rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <span style={{ fontSize: '0.75rem', color: ROLE_CONFIG[myRole]?.color || mutedColor }}>You are: {ROLE_CONFIG[myRole]?.label || 'Member'}</span>
+          {/* Leave button — only for non-leaders */}
+          {!isLeader && myMembershipId && (
+            <button
+              onClick={leaveGroup}
+              style={{ background: 'transparent', border: '1px solid rgba(239,68,68,0.3)', color: '#ef4444', borderRadius: '6px', padding: '0.2rem 0.6rem', cursor: 'pointer', fontFamily: 'Inter, sans-serif', fontSize: '0.75rem', fontWeight: '600' }}
+            >
+              Leave
+            </button>
+          )}
         </div>
       </div>
 
@@ -417,7 +418,6 @@ export default function GroupChat({ theme }) {
             <button onClick={() => setSidebarOpen(true)} style={{ background: inputBg, border: `1px solid ${inputBorder}`, color: textColor, borderRadius: '8px', padding: '0.4rem 0.75rem', cursor: 'pointer', fontFamily: 'Inter, sans-serif', fontSize: '0.8rem' }}>👥 {members.length + 1}</button>
           </div>
 
-          {/* Pinned message banner */}
           {pinnedMessage && showPinned && (
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.6rem 1rem', background: 'rgba(108,99,255,0.1)', border: '1px solid rgba(108,99,255,0.25)', borderRadius: '10px', marginBottom: '0.75rem' }}>
               <span style={{ fontSize: '0.85rem' }}>📌</span>
@@ -432,7 +432,6 @@ export default function GroupChat({ theme }) {
             </button>
           )}
 
-          {/* Announcements */}
           {announcements.length > 0 && (
             <div style={{ marginBottom: '0.75rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
               {announcements.map(a => (
@@ -467,21 +466,12 @@ export default function GroupChat({ theme }) {
             </div>
           )}
 
-          {/* Report modal */}
           {reportMsgId && (
             <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 300, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
               <div style={{ background: isLight ? '#f0f0f7' : '#1a1a2e', border: `1px solid ${border}`, borderRadius: '16px', padding: '1.5rem', width: '90%', maxWidth: '420px', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
                 <h3 style={{ fontWeight: '700', fontSize: '1rem', color: '#ef4444', margin: 0 }}>🚨 Report Message</h3>
-                <p style={{ color: mutedColor, fontSize: '0.85rem', margin: 0 }}>
-                  Message: <em>"{truncate(messages.find(m => m.id === reportMsgId)?.content, 60)}"</em>
-                </p>
-                <textarea
-                  placeholder="Describe the reason for reporting..."
-                  value={reportReason}
-                  onChange={e => setReportReason(e.target.value)}
-                  rows={3}
-                  style={{ padding: '0.75rem', borderRadius: '10px', border: '1px solid rgba(239,68,68,0.3)', background: inputBg, color: textColor, fontFamily: 'Inter, sans-serif', fontSize: '0.9rem', outline: 'none', resize: 'none' }}
-                />
+                <p style={{ color: mutedColor, fontSize: '0.85rem', margin: 0 }}>Message: <em>"{truncate(messages.find(m => m.id === reportMsgId)?.content, 60)}"</em></p>
+                <textarea placeholder="Describe the reason for reporting..." value={reportReason} onChange={e => setReportReason(e.target.value)} rows={3} style={{ padding: '0.75rem', borderRadius: '10px', border: '1px solid rgba(239,68,68,0.3)', background: inputBg, color: textColor, fontFamily: 'Inter, sans-serif', fontSize: '0.9rem', outline: 'none', resize: 'none' }} />
                 <div style={{ display: 'flex', gap: '0.75rem' }}>
                   <button onClick={() => submitReport(messages.find(m => m.id === reportMsgId))} style={{ flex: 1, padding: '0.75rem', background: 'rgba(239,68,68,0.15)', color: '#ef4444', border: '1px solid rgba(239,68,68,0.3)', borderRadius: '10px', cursor: 'pointer', fontFamily: 'Inter, sans-serif', fontWeight: '600' }}>Submit Report</button>
                   <button onClick={() => { setReportMsgId(null); setReportReason('') }} style={{ padding: '0.75rem 1rem', background: 'transparent', color: mutedColor, border: `1px solid ${border}`, borderRadius: '10px', cursor: 'pointer', fontFamily: 'Inter, sans-serif' }}>Cancel</button>
@@ -490,7 +480,6 @@ export default function GroupChat({ theme }) {
             </div>
           )}
 
-          {/* Messages */}
           <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '1rem', marginBottom: '1rem' }}>
             {messages.length === 0 && (
               <div style={{ textAlign: 'center', color: mutedColor, marginTop: '3rem' }}>
@@ -524,12 +513,8 @@ export default function GroupChat({ theme }) {
                       </div>
                       {isHovered && (
                         <div style={{ display: 'flex', gap: '0.25rem', alignItems: 'center' }}>
-                          {canPin && (
-                            <button onClick={() => pinMessage(msg)} title="Pin" style={{ background: actionBtn, border: `1px solid ${actionBord}`, color: isPinned ? '#a78bfa' : textColor, borderRadius: '6px', padding: '0.25rem 0.4rem', cursor: 'pointer', fontSize: '0.8rem' }}>📌</button>
-                          )}
-                          {!isMine && (
-                            <button onClick={() => setReportMsgId(msg.id)} title="Report" style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.2)', color: '#ef4444', borderRadius: '6px', padding: '0.25rem 0.4rem', cursor: 'pointer', fontSize: '0.8rem' }}>🚨</button>
-                          )}
+                          {canPin && <button onClick={() => pinMessage(msg)} title="Pin" style={{ background: actionBtn, border: `1px solid ${actionBord}`, color: isPinned ? '#a78bfa' : textColor, borderRadius: '6px', padding: '0.25rem 0.4rem', cursor: 'pointer', fontSize: '0.8rem' }}>📌</button>}
+                          {!isMine && <button onClick={() => setReportMsgId(msg.id)} title="Report" style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.2)', color: '#ef4444', borderRadius: '6px', padding: '0.25rem 0.4rem', cursor: 'pointer', fontSize: '0.8rem' }}>🚨</button>}
                           <div style={{ position: 'relative' }}>
                             <button onClick={(e) => { e.stopPropagation(); setEmojiPickerMsg(emojiPickerMsg === msg.id ? null : msg.id) }} style={{ background: actionBtn, border: `1px solid ${actionBord}`, color: textColor, borderRadius: '6px', padding: '0.25rem 0.4rem', cursor: 'pointer', fontSize: '0.8rem' }}>😊</button>
                             {emojiPickerMsg === msg.id && (
