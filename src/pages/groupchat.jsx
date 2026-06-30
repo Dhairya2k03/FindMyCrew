@@ -157,12 +157,15 @@ export default function GroupChat({ theme }) {
   }
 
   const postSystemMessage = async (content) => {
-    await supabase.from('group_messages').insert({
+    console.log('Posting system message:', content, 'groupId:', groupId, 'sender:', currentUser?.id)
+    const { data, error } = await supabase.from('group_messages').insert({
       group_id: groupId,
       sender_id: currentUser.id,
       content,
       is_system: true
     })
+    if (error) console.error('System message error:', error)
+    else console.log('System message posted successfully')
   }
 
   const leaveGroup = async () => {
