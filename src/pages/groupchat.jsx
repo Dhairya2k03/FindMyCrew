@@ -146,21 +146,6 @@ export default function GroupChat({ theme }) {
     return () => document.removeEventListener('click', handler)
   }, [])
 
-  const getName = (uid) => { const p = profiles[uid]; return p?.username || p?.email?.split('@')[0] || 'Player' }
-  const getAvatar = (uid) => profiles[uid]?.avatar_url || null
-  const avatarColors = ['#6c63ff', '#f59e0b', '#10b981', '#ef4444', '#3b82f6', '#ec4899']
-  const getColor = (uid) => { const n = getName(uid); return avatarColors[n.charCodeAt(0) % avatarColors.length] }
-  const truncate = (text, n = 50) => text?.length > n ? text.substring(0, n) + '...' : text
-
-  const sendSystemMessage = async (text) => {
-    await supabase.from('group_messages').insert({
-      group_id: groupId,
-      sender_id: null,
-      content: text,
-      is_system: true
-    })
-  }
-
   const sendMessage = async () => {
     if (!newMessage.trim()) return
     const content = newMessage.trim()
@@ -174,9 +159,7 @@ export default function GroupChat({ theme }) {
   const leaveGroup = async () => {
     if (!myMembershipId) return
     if (!window.confirm('Are you sure you want to leave this group?')) return
-    const myName = getName(currentUser.id)
     await supabase.from('group_members').delete().eq('id', myMembershipId)
-    await sendSystemMessage(`${myName} left the group.`)
     navigate('/groups')
   }
 
@@ -262,28 +245,20 @@ export default function GroupChat({ theme }) {
     if (status === 'accepted') {
       const member = pendingMembers.find(m => m.id === memberId)
       setMembers(prev => [...prev, { ...member, status: 'accepted', role: 'member' }])
-      await sendSystemMessage(`${getName(member.user_id)} joined the group.`)
     }
     setPendingMembers(prev => prev.filter(m => m.id !== memberId))
   }
 
   const kickMember = async (memberId) => {
-    const member = members.find(m => m.id === memberId)
-    const kickedName = getName(member?.user_id)
     await supabase.from('group_members').delete().eq('id', memberId)
     setMembers(prev => prev.filter(m => m.id !== memberId))
     setRoleMenuOpen(null)
-    await sendSystemMessage(`${getName(currentUser.id)} kicked ${kickedName} from the group.`)
   }
 
   const promoteRole = async (memberId, newRole) => {
-    const member = members.find(m => m.id === memberId)
-    const memberName = getName(member?.user_id)
     await supabase.from('group_members').update({ role: newRole }).eq('id', memberId)
     setMembers(prev => prev.map(m => m.id === memberId ? { ...m, role: newRole } : m))
     setRoleMenuOpen(null)
-    const roleLabel = ROLE_CONFIG[newRole]?.label || newRole
-    await sendSystemMessage(`${getName(currentUser.id)} set ${memberName} as ${roleLabel}.`)
   }
 
   const generateInvite = async () => {
@@ -299,6 +274,12 @@ export default function GroupChat({ theme }) {
   const canManageMembers = isLeader || isAdmin
   const canAnnounce = isLeader || isAdmin || myRole === 'elder'
   const canPin = isLeader || isAdmin
+
+  const getName = (uid) => { const p = profiles[uid]; return p?.username || p?.email?.split('@')[0] || 'Player' }
+  const getAvatar = (uid) => profiles[uid]?.avatar_url || null
+  const avatarColors = ['#6c63ff', '#f59e0b', '#10b981', '#ef4444', '#3b82f6', '#ec4899']
+  const getColor = (uid) => { const n = getName(uid); return avatarColors[n.charCodeAt(0) % avatarColors.length] }
+  const truncate = (text, n = 50) => text?.length > n ? text.substring(0, n) + '...' : text
 
   const Avatar = ({ userId, size = 28 }) => {
     const url = getAvatar(userId)
@@ -351,8 +332,14 @@ export default function GroupChat({ theme }) {
         <p style={{ color: '#a78bfa', fontSize: '0.85rem' }}>{group?.game}</p>
         <div style={{ marginTop: '0.5rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <span style={{ fontSize: '0.75rem', color: ROLE_CONFIG[myRole]?.color || mutedColor }}>You are: {ROLE_CONFIG[myRole]?.label || 'Member'}</span>
+          {/* Leave button — only for non-leaders */}
           {!isLeader && myMembershipId && (
-            <button onClick={leaveGroup} style={{ background: 'transparent', border: '1px solid rgba(239,68,68,0.3)', color: '#ef4444', borderRadius: '6px', padding: '0.2rem 0.6rem', cursor: 'pointer', fontFamily: 'Inter, sans-serif', fontSize: '0.75rem', fontWeight: '600' }}>Leave</button>
+            <button
+              onClick={leaveGroup}
+              style={{ background: 'transparent', border: '1px solid rgba(239,68,68,0.3)', color: '#ef4444', borderRadius: '6px', padding: '0.2rem 0.6rem', cursor: 'pointer', fontFamily: 'Inter, sans-serif', fontSize: '0.75rem', fontWeight: '600' }}
+            >
+              Leave
+            </button>
           )}
         </div>
       </div>
@@ -421,7 +408,6 @@ export default function GroupChat({ theme }) {
         <div className="desktop-sidebar" style={{ width: '260px', borderRight: `1px solid ${border}`, padding: '1.5rem', flexShrink: 0 }}>
           <Sidebar />
         </div>
-
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', padding: '1rem', minWidth: 0 }}>
           <div className="mobile-header" style={{ display: 'none', alignItems: 'center', gap: '0.75rem', marginBottom: '1rem' }}>
             <button onClick={() => navigate('/groups')} style={{ background: 'none', border: 'none', color: mutedColor, cursor: 'pointer', fontSize: '0.9rem', padding: 0, fontFamily: 'Inter, sans-serif' }}>←</button>
@@ -502,27 +488,6 @@ export default function GroupChat({ theme }) {
               </div>
             )}
             {messages.map(msg => {
-              // System message
-              if (msg.is_system) {
-                return (
-                  <div key={msg.id} style={{ display: 'flex', justifyContent: 'center', padding: '0.25rem 0' }}>
-                    <span style={{
-                      fontSize: '0.78rem',
-                      fontStyle: 'italic',
-                      color: mutedColor,
-                      background: isLight ? 'rgba(0,0,0,0.04)' : 'rgba(255,255,255,0.05)',
-                      border: `1px solid ${border}`,
-                      borderRadius: '100px',
-                      padding: '0.25rem 0.85rem',
-                      letterSpacing: '0.01em',
-                    }}>
-                      {msg.content}
-                    </span>
-                  </div>
-                )
-              }
-
-              // Normal message
               const isMine = msg.sender_id === currentUser?.id
               const senderMember = members.find(m => m.user_id === msg.sender_id)
               const senderRole = msg.sender_id === group?.leader_id ? 'leader' : senderMember?.role || 'member'
