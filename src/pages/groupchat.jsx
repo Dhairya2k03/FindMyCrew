@@ -156,9 +156,19 @@ export default function GroupChat({ theme }) {
     if (data) setMessages(prev => prev.map(m => m.id === tempMsg.id ? data : m))
   }
 
+  const postSystemMessage = async (content) => {
+    await supabase.from('group_messages').insert({
+      group_id: groupId,
+      sender_id: currentUser.id,
+      content,
+      is_system: true
+    })
+  }
+
   const leaveGroup = async () => {
     if (!myMembershipId) return
     if (!window.confirm('Are you sure you want to leave this group?')) return
+    await postSystemMessage(`${getName(currentUser.id)} left the group`)
     await supabase.from('group_members').delete().eq('id', myMembershipId)
     navigate('/groups')
   }
@@ -241,24 +251,36 @@ export default function GroupChat({ theme }) {
   const deleteEvent = async (id) => { await supabase.from('group_events').delete().eq('id', id) }
 
   const respondToMember = async (memberId, status) => {
+    const member = pendingMembers.find(m => m.id === memberId)
     await supabase.from('group_members').update({ status }).eq('id', memberId)
     if (status === 'accepted') {
-      const member = pendingMembers.find(m => m.id === memberId)
       setMembers(prev => [...prev, { ...member, status: 'accepted', role: 'member' }])
+      if (member) postSystemMessage(`${getName(member.user_id)} joined the group`)
     }
     setPendingMembers(prev => prev.filter(m => m.id !== memberId))
   }
 
   const kickMember = async (memberId) => {
+    const member = members.find(m => m.id === memberId)
     await supabase.from('group_members').delete().eq('id', memberId)
     setMembers(prev => prev.filter(m => m.id !== memberId))
     setRoleMenuOpen(null)
+    if (member) postSystemMessage(`${getName(member.user_id)} was removed from the group`)
   }
 
   const promoteRole = async (memberId, newRole) => {
+    const member = members.find(m => m.id === memberId)
+    const oldRole = member?.role || 'member'
     await supabase.from('group_members').update({ role: newRole }).eq('id', memberId)
     setMembers(prev => prev.map(m => m.id === memberId ? { ...m, role: newRole } : m))
     setRoleMenuOpen(null)
+    if (member) {
+      const roleOrder = { admin: 3, elder: 2, member: 1 }
+      const isPromotion = roleOrder[newRole] > roleOrder[oldRole]
+      const verb = isPromotion ? 'promoted' : 'demoted'
+      const roleLabel = ROLE_CONFIG[newRole].label.replace(/^\S+\s/, '')
+      postSystemMessage(`${getName(member.user_id)} was ${verb} to ${roleLabel}`)
+    }
   }
 
   const generateInvite = async () => {
@@ -332,12 +354,8 @@ export default function GroupChat({ theme }) {
         <p style={{ color: '#a78bfa', fontSize: '0.85rem' }}>{group?.game}</p>
         <div style={{ marginTop: '0.5rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <span style={{ fontSize: '0.75rem', color: ROLE_CONFIG[myRole]?.color || mutedColor }}>You are: {ROLE_CONFIG[myRole]?.label || 'Member'}</span>
-          {/* Leave button — only for non-leaders */}
           {!isLeader && myMembershipId && (
-            <button
-              onClick={leaveGroup}
-              style={{ background: 'transparent', border: '1px solid rgba(239,68,68,0.3)', color: '#ef4444', borderRadius: '6px', padding: '0.2rem 0.6rem', cursor: 'pointer', fontFamily: 'Inter, sans-serif', fontSize: '0.75rem', fontWeight: '600' }}
-            >
+            <button onClick={leaveGroup} style={{ background: 'transparent', border: '1px solid rgba(239,68,68,0.3)', color: '#ef4444', borderRadius: '6px', padding: '0.2rem 0.6rem', cursor: 'pointer', fontFamily: 'Inter, sans-serif', fontSize: '0.75rem', fontWeight: '600' }}>
               Leave
             </button>
           )}
@@ -488,6 +506,15 @@ export default function GroupChat({ theme }) {
               </div>
             )}
             {messages.map(msg => {
+              if (msg.is_system) {
+                return (
+                  <div key={msg.id} style={{ textAlign: 'center', margin: '0.25rem 0' }}>
+                    <span style={{ background: actionBtn, color: mutedColor, fontSize: '0.75rem', padding: '0.3rem 0.9rem', borderRadius: '100px', border: `1px solid ${actionBord}` }}>
+                      {msg.content}
+                    </span>
+                  </div>
+                )
+              }
               const isMine = msg.sender_id === currentUser?.id
               const senderMember = members.find(m => m.user_id === msg.sender_id)
               const senderRole = msg.sender_id === group?.leader_id ? 'leader' : senderMember?.role || 'member'
