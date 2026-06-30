@@ -1,6 +1,7 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { useEffect, useState } from 'react'
 import { supabase } from './lib/supabaseClient'
+
 import Navbar from './components/Navbar'
 import Home from './pages/Home'
 import Login from './pages/Login'
@@ -28,7 +29,10 @@ function ProtectedRoute({ user, children }) {
 export default function App() {
   const [user, setUser] = useState(null)
   const [loading, setLoading] = useState(true)
-  const [theme, setTheme] = useState(() => localStorage.getItem('theme') || 'dark')
+
+  const [theme, setTheme] = useState(
+    () => localStorage.getItem('theme') || 'dark'
+  )
 
   useEffect(() => {
     document.body.classList.toggle('light', theme === 'light')
@@ -36,39 +40,183 @@ export default function App() {
   }, [theme])
 
   useEffect(() => {
-    supabase.auth.getUser().then(({ data: { user } }) => {
-      setUser(user)
-      setLoading(false)
-    })
-    supabase.auth.onAuthStateChange((event, session) => {
-      setUser(session?.user ?? null)
-    })
+    let mounted = true
+
+    const initAuth = async () => {
+      const { data } = await supabase.auth.getUser()
+      if (mounted) {
+        setUser(data?.user ?? null)
+        setLoading(false)
+      }
+    }
+
+    initAuth()
+
+    const { data: authListener } = supabase.auth.onAuthStateChange(
+      (_event, session) => {
+        setUser(session?.user ?? null)
+      }
+    )
+
+    return () => {
+      mounted = false
+      authListener.subscription.unsubscribe()
+    }
   }, [])
 
   if (loading) return null
 
   return (
     <BrowserRouter>
-      <Navbar theme={theme} setTheme={setTheme} />
+      <Navbar theme={theme} setTheme={setTheme} user={user} />
+
       <Routes>
-        <Route path="/login" element={user ? <Navigate to="/" /> : <Login />} />
-        <Route path="/" element={<ProtectedRoute user={user}><Home theme={theme} /></ProtectedRoute>} />
-        <Route path="/browse" element={<ProtectedRoute user={user}><Browse theme={theme} /></ProtectedRoute>} />
-        <Route path="/profile" element={<ProtectedRoute user={user}><Profile theme={theme} /></ProtectedRoute>} />
-        <Route path="/connections" element={<ProtectedRoute user={user}><Connections theme={theme} /></ProtectedRoute>} />
-        <Route path="/chat/:userId" element={<ProtectedRoute user={user}><Chat theme={theme} /></ProtectedRoute>} />
-        <Route path="/game-levels" element={<ProtectedRoute user={user}><GameLevels theme={theme} /></ProtectedRoute>} />
-        <Route path="/groups" element={<ProtectedRoute user={user}><Groups theme={theme} /></ProtectedRoute>} />
-        <Route path="/groups/:groupId" element={<ProtectedRoute user={user}><GroupChat theme={theme} /></ProtectedRoute>} />
-        <Route path="/invite/:inviteCode" element={<ProtectedRoute user={user}><InvitePage theme={theme} /></ProtectedRoute>} />
+        <Route
+          path="/login"
+          element={user ? <Navigate to="/" /> : <Login />}
+        />
+
+        <Route
+          path="/"
+          element={
+            <ProtectedRoute user={user}>
+              <Home theme={theme} />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/browse"
+          element={
+            <ProtectedRoute user={user}>
+              <Browse theme={theme} />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/profile"
+          element={
+            <ProtectedRoute user={user}>
+              <Profile theme={theme} />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/connections"
+          element={
+            <ProtectedRoute user={user}>
+              <Connections theme={theme} />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/chat/:userId"
+          element={
+            <ProtectedRoute user={user}>
+              <Chat theme={theme} />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/game-levels"
+          element={
+            <ProtectedRoute user={user}>
+              <GameLevels theme={theme} />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/groups"
+          element={
+            <ProtectedRoute user={user}>
+              <Groups theme={theme} />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/groups/:groupId"
+          element={
+            <ProtectedRoute user={user}>
+              <GroupChat theme={theme} />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/invite/:inviteCode"
+          element={
+            <ProtectedRoute user={user}>
+              <InvitePage theme={theme} />
+            </ProtectedRoute>
+          }
+        />
+
         <Route path="/reset-password" element={<ResetPassword />} />
-        <Route path="/messages" element={<ProtectedRoute user={user}><Messages theme={theme} /></ProtectedRoute>} />
-        <Route path="/user/:userId" element={<ProtectedRoute user={user}><UserProfile theme={theme} /></ProtectedRoute>} />
-        <Route path="/notifications" element={<ProtectedRoute user={user}><Notifications theme={theme} /></ProtectedRoute>} />
-        <Route path="/search" element={<ProtectedRoute user={user}><Search theme={theme} /></ProtectedRoute>} />
-        <Route path="/achievements" element={<ProtectedRoute user={user}><AchievementsPage theme={theme} /></ProtectedRoute>} />
-        <Route path="*" element={<Navigate to={user ? "/" : "/login"} />} />
-        <Route path="/admin" element={<ProtectedRoute user={user}><AdminPanel theme={theme} /></ProtectedRoute>} />
+
+        <Route
+          path="/messages"
+          element={
+            <ProtectedRoute user={user}>
+              <Messages theme={theme} />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/user/:userId"
+          element={
+            <ProtectedRoute user={user}>
+              <UserProfile theme={theme} />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/notifications"
+          element={
+            <ProtectedRoute user={user}>
+              <Notifications theme={theme} />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/search"
+          element={
+            <ProtectedRoute user={user}>
+              <Search theme={theme} />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/achievements"
+          element={
+            <ProtectedRoute user={user}>
+              <AchievementsPage theme={theme} />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/admin"
+          element={
+            <ProtectedRoute user={user}>
+              <AdminPanel theme={theme} />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="*"
+          element={<Navigate to={user ? "/" : "/login"} />}
+        />
       </Routes>
     </BrowserRouter>
   )
