@@ -18,6 +18,7 @@ import Notifications from './pages/Notifications'
 import Search from './pages/Search'
 import Messages from './pages/Messages'
 import AchievementsPage from './pages/AchievementsPage'
+import AdminPanel from './pages/AdminPanel'
 
 function ProtectedRoute({ user, children }) {
   if (!user) return <Navigate to="/login" />
@@ -67,6 +68,7 @@ export default function App() {
         <Route path="/search" element={<ProtectedRoute user={user}><Search theme={theme} /></ProtectedRoute>} />
         <Route path="/achievements" element={<ProtectedRoute user={user}><AchievementsPage theme={theme} /></ProtectedRoute>} />
         <Route path="*" element={<Navigate to={user ? "/" : "/login"} />} />
+        <Route path="/admin" element={<ProtectedRoute user={user}><AdminPanel theme={theme} /></ProtectedRoute>} />
       </Routes>
     </BrowserRouter>
   )
