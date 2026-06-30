@@ -8,10 +8,14 @@ export default function Navbar({ theme, setTheme }) {
   const [unreadMessages, setUnreadMessages] = useState(0)
   const [unreadNotifs, setUnreadNotifs] = useState(0)
   const [menuOpen, setMenuOpen] = useState(false)
+  const [currentUser, setCurrentUser] = useState(null)
+
+  const ADMIN_ID = '87d930f5-4ea4-44f5-9f3e-3f1fbf254c38'
 
   useEffect(() => {
     const load = async () => {
       const { data: { user } } = await supabase.auth.getUser()
+      setCurrentUser(user)
       if (!user) return
       const chatMatch = location.pathname.match(/\/chat\/([^/]+)/)
       const openChatUserId = chatMatch ? chatMatch[1] : null
@@ -40,15 +44,23 @@ export default function Navbar({ theme, setTheme }) {
   const isLight = theme === 'light'
 
   const navItems = [
-    { path: '/', label: 'Home' },
-    { path: '/browse', label: 'Browse' },
-    { path: '/search', label: '🔍' },
-    { path: '/messages', label: 'Messages', badge: unreadMessages },
-    { path: '/groups', label: 'Groups' },
-    { path: '/connections', label: 'Connections' },
-    { path: '/notifications', label: '🔔', badge: unreadNotifs },
-    { path: '/profile', label: 'Profile' },
-  ]
+  { path: '/', label: 'Home' },
+  { path: '/browse', label: 'Browse' },
+  { path: '/search', label: '🔍' },
+  { path: '/messages', label: 'Messages', badge: unreadMessages },
+  { path: '/groups', label: 'Groups' },
+  { path: '/connections', label: 'Connections' },
+  { path: '/notifications', label: '🔔', badge: unreadNotifs },
+  { path: '/profile', label: 'Profile' },
+]
+
+// Show Admin only for you
+if (currentUser?.id === ADMIN_ID) {
+  navItems.push({
+    path: '/admin',
+    label: '🛡️ Admin',
+  })
+}
 
   const navBg = isLight ? 'rgba(240,240,247,0.95)' : 'rgba(15,15,26,0.95)'
   const navBorder = isLight ? 'rgba(108,99,255,0.15)' : 'rgba(108,99,255,0.2)'
