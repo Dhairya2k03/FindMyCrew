@@ -14,6 +14,10 @@ export default function Navbar({ theme, setTheme, user }) {
   const isAdmin = user?.id === ADMIN_ID
   const isLight = theme === 'light'
 
+  // Debug — remove after confirming admin link shows
+  console.log('navbar user id:', user?.id)
+  console.log('is admin:', isAdmin)
+
   useEffect(() => {
     const load = async () => {
       if (!user) return
@@ -66,7 +70,7 @@ export default function Navbar({ theme, setTheme, user }) {
   return (
     <>
       <nav style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0 1.5rem', height: '64px', background: navBg, backdropFilter: 'blur(10px)', borderBottom: `1px solid ${navBorder}`, position: 'sticky', top: 0, zIndex: 100 }}>
-        <Link to="/" style={{ fontWeight: '800', fontSize: '1.2rem', marginRight: 'auto', background: 'linear-gradient(135deg, #6c63ff, #a78bfa)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
+        <Link to="/" style={{ fontWeight: '800', fontSize: '1.2rem', marginRight: 'auto', background: 'linear-gradient(135deg, #6c63ff, #a78bfa)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', textDecoration: 'none' }}>
           🎮 FindMyCrew
         </Link>
 
