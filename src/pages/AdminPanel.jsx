@@ -1,8 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabaseClient'
-
-const ADMIN_ID = '87d930f5-4ea4-44f5-9f3e-3f1fbf254c38'
+import { ADMIN_ID } from '../lib/constants'
 
 export default function AdminPanel({ theme }) {
   const navigate = useNavigate()
@@ -35,7 +34,6 @@ export default function AdminPanel({ theme }) {
 
       setReports(reportsData || [])
 
-      // Load all unique user profiles referenced in reports
       const userIds = new Set()
       reportsData?.forEach(r => {
         if (r.reporter_id) userIds.add(r.reporter_id)
@@ -81,7 +79,6 @@ export default function AdminPanel({ theme }) {
     <div style={{ minHeight: 'calc(100vh - 64px)', background: bg, padding: '2rem' }}>
       <div style={{ maxWidth: '900px', margin: '0 auto' }}>
 
-        {/* Header */}
         <div style={{ marginBottom: '2rem' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '0.5rem' }}>
             <span style={{ fontSize: '1.5rem' }}>🛡️</span>
@@ -90,7 +87,6 @@ export default function AdminPanel({ theme }) {
           <p style={{ color: textMuted }}>Review and manage user reports</p>
         </div>
 
-        {/* Stats row */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '1rem', marginBottom: '2rem' }}>
           {[
             { label: 'Total Reports', value: reports.length, color: '#6c63ff' },
@@ -104,7 +100,6 @@ export default function AdminPanel({ theme }) {
           ))}
         </div>
 
-        {/* Filter tabs */}
         <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1.5rem' }}>
           {[
             { id: 'all', label: 'All' },
@@ -131,7 +126,6 @@ export default function AdminPanel({ theme }) {
           ))}
         </div>
 
-        {/* Reports list */}
         {filtered.length === 0 ? (
           <div style={{ textAlign: 'center', padding: '4rem', color: textMuted }}>
             <p style={{ fontSize: '2.5rem', marginBottom: '0.75rem' }}>✅</p>
@@ -145,7 +139,6 @@ export default function AdminPanel({ theme }) {
                 <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '1rem', flexWrap: 'wrap' }}>
                   <div style={{ flex: 1, minWidth: 0 }}>
 
-                    {/* Type badge + date */}
                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.75rem', flexWrap: 'wrap' }}>
                       <span style={{
                         fontSize: '0.72rem',
@@ -163,7 +156,6 @@ export default function AdminPanel({ theme }) {
                       <span style={{ fontSize: '0.78rem', color: textMuted }}>{formatDate(report.created_at)}</span>
                     </div>
 
-                    {/* Reporter → Reported */}
                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.6rem', flexWrap: 'wrap' }}>
                       <span style={{ fontSize: '0.85rem', color: textMuted }}>Reported by</span>
                       <span style={{ fontWeight: '600', fontSize: '0.9rem', color: '#a78bfa' }}>{getName(report.reporter_id)}</span>
@@ -171,13 +163,11 @@ export default function AdminPanel({ theme }) {
                       <span style={{ fontWeight: '600', fontSize: '0.9rem', color: '#ef4444' }}>{getName(report.reported_user_id)}</span>
                     </div>
 
-                    {/* Reason */}
                     <div style={{ background: isLight ? 'rgba(239,68,68,0.05)' : 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.15)', borderRadius: '10px', padding: '0.65rem 0.9rem', marginBottom: report.message_content ? '0.6rem' : 0 }}>
                       <p style={{ fontSize: '0.8rem', color: textMuted, marginBottom: '0.2rem', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Reason</p>
                       <p style={{ fontSize: '0.9rem', color: textPrimary, margin: 0 }}>{report.reason}</p>
                     </div>
 
-                    {/* Reported message content if group message report */}
                     {report.message_content && (
                       <div style={{ background: inputBg, border: `1px solid ${inputBorder}`, borderRadius: '10px', padding: '0.65rem 0.9rem', marginTop: '0.6rem' }}>
                         <p style={{ fontSize: '0.8rem', color: textMuted, marginBottom: '0.2rem', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Reported Message</p>
@@ -185,7 +175,6 @@ export default function AdminPanel({ theme }) {
                       </div>
                     )}
 
-                    {/* Group context */}
                     {report.context_type === 'group_message' && report.context_id && (
                       <p style={{ fontSize: '0.78rem', color: textMuted, marginTop: '0.5rem' }}>
                         Group ID: <span style={{ fontFamily: 'monospace', color: '#a78bfa' }}>{report.context_id}</span>
@@ -193,7 +182,6 @@ export default function AdminPanel({ theme }) {
                     )}
                   </div>
 
-                  {/* Actions */}
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', flexShrink: 0 }}>
                     <button
                       onClick={() => navigate(`/user/${report.reported_user_id}`)}

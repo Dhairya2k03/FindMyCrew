@@ -1,8 +1,7 @@
 import { Link, useNavigate, useLocation } from 'react-router-dom'
 import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabaseClient'
-
-const ADMIN_ID = '87d930f5-4ea4-44f5-9f3e-3f1fbf254c38'
+import { ADMIN_ID } from '../lib/constants'
 
 export default function Navbar({ theme, setTheme, user }) {
   const navigate = useNavigate()
@@ -13,10 +12,6 @@ export default function Navbar({ theme, setTheme, user }) {
 
   const isAdmin = user?.id === ADMIN_ID
   const isLight = theme === 'light'
-
-  // Debug — remove after confirming admin link shows
-  console.log('navbar user id:', user?.id)
-  console.log('is admin:', isAdmin)
 
   useEffect(() => {
     const load = async () => {
