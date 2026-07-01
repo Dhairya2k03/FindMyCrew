@@ -13,6 +13,9 @@ export default function Navbar({ theme, setTheme, user }) {
   const isAdmin = user?.id === ADMIN_ID
   const isLight = theme === 'light'
 
+  console.log('navbar user id:', user?.id)
+  console.log('is admin:', isAdmin)
+
   useEffect(() => {
     const load = async () => {
       if (!user) return
