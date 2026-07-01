@@ -38,8 +38,8 @@ export default function App() {
 
   useEffect(() => {
     const init = async () => {
-      const { data } = await supabase.auth.getUser()
-      setUser(data?.user ?? null)
+      const { data } = await supabase.auth.getSession()
+      setUser(data?.session?.user ?? null)
       setLoading(false)
     }
 
