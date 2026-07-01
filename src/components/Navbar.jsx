@@ -1,147 +1,88 @@
-import { Link, useNavigate, useLocation } from 'react-router-dom'
-import { useState, useEffect } from 'react'
-import { supabase } from '../lib/supabaseClient'
-import { ADMIN_ID } from '../lib/constants'
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
+import { useEffect, useState } from 'react'
+import { supabase } from './lib/supabaseClient'
 
-export default function Navbar({ theme, setTheme, user }) {
-  const navigate = useNavigate()
-  const location = useLocation()
-  const [unreadMessages, setUnreadMessages] = useState(0)
-  const [unreadNotifs, setUnreadNotifs] = useState(0)
-  const [menuOpen, setMenuOpen] = useState(false)
+import Navbar from './components/Navbar'
+import Home from './pages/Home'
+import Login from './pages/Login'
+import Profile from './pages/Profile'
+import Browse from './pages/Browse'
+import Connections from './pages/Connections'
+import Chat from './pages/Chat'
+import GameLevels from './pages/GameLevels'
+import Groups from './pages/Groups'
+import GroupChat from './pages/GroupChat'
+import ResetPassword from './pages/ResetPassword'
+import InvitePage from './pages/InvitePage'
+import UserProfile from './pages/UserProfile'
+import Notifications from './pages/Notifications'
+import Search from './pages/Search'
+import Messages from './pages/Messages'
+import AchievementsPage from './pages/AchievementsPage'
+import AdminPanel from './pages/AdminPanel'
 
-  const isAdmin = user?.id === ADMIN_ID
-  const isLight = theme === 'light'
+function ProtectedRoute({ user, children }) {
+  if (!user) return <Navigate to="/login" />
+  return children
+}
 
-  console.log('navbar user id:', user?.id)
-  console.log('is admin:', isAdmin)
+export default function App() {
+  const [user, setUser] = useState(null)
+  const [loading, setLoading] = useState(true)
+  const [theme, setTheme] = useState(() => localStorage.getItem('theme') || 'dark')
 
   useEffect(() => {
-    const load = async () => {
-      if (!user) return
-      const chatMatch = location.pathname.match(/\/chat\/([^/]+)/)
-      const openChatUserId = chatMatch ? chatMatch[1] : null
-      const { data: msgs } = await supabase.from('messages').select('id, sender_id').eq('receiver_id', user.id).is('read_at', null)
-      const filtered = msgs?.filter(m => m.sender_id !== openChatUserId) || []
-      setUnreadMessages(filtered.length)
-      const { data: notifs } = await supabase.from('notifications').select('id').eq('user_id', user.id).eq('read', false)
-      setUnreadNotifs(notifs?.length || 0)
+    document.body.classList.toggle('light', theme === 'light')
+    localStorage.setItem('theme', theme)
+  }, [theme])
+
+  useEffect(() => {
+    const init = async () => {
+      const { data } = await supabase.auth.getSession()
+      setUser(data?.session?.user ?? null)
+      setLoading(false)
     }
-    load()
-    const channel = supabase.channel('navbar-badges')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'messages' }, load)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'notifications' }, load)
-      .subscribe()
-    return () => supabase.removeChannel(channel)
-  }, [location.pathname, user])
 
-  useEffect(() => { setMenuOpen(false) }, [location.pathname])
+    init()
 
-  const handleLogout = async () => {
-    await supabase.auth.signOut()
-    navigate('/login')
-  }
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user ?? null)
+    })
 
-  const isActive = (path) => location.pathname === path
+    return () => {
+      listener.subscription.unsubscribe()
+    }
+  }, [])
 
-  const baseNavItems = [
-    { path: '/', label: 'Home' },
-    { path: '/browse', label: 'Browse' },
-    { path: '/search', label: '🔍' },
-    { path: '/messages', label: 'Messages', badge: unreadMessages },
-    { path: '/groups', label: 'Groups' },
-    { path: '/connections', label: 'Connections' },
-    { path: '/notifications', label: '🔔', badge: unreadNotifs },
-    { path: '/profile', label: 'Profile' },
-  ]
-
-  const navItems = isAdmin
-    ? [...baseNavItems, { path: '/admin', label: '🛡️ Admin' }]
-    : baseNavItems
-
-  const navBg     = isLight ? 'rgba(240,240,247,0.95)' : 'rgba(15,15,26,0.95)'
-  const navBorder = isLight ? 'rgba(108,99,255,0.15)'  : 'rgba(108,99,255,0.2)'
-  const activeColor   = '#6c63ff'
-  const inactiveColor = isLight ? '#666' : '#aaa'
-  const activeBg  = 'rgba(108,99,255,0.1)'
+  if (loading) return null
 
   return (
-    <>
-      <nav style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0 1.5rem', height: '64px', background: navBg, backdropFilter: 'blur(10px)', borderBottom: `1px solid ${navBorder}`, position: 'sticky', top: 0, zIndex: 100 }}>
-        <Link to="/" style={{ fontWeight: '800', fontSize: '1.2rem', marginRight: 'auto', background: 'linear-gradient(135deg, #6c63ff, #a78bfa)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', textDecoration: 'none' }}>
-          🎮 FindMyCrew
-        </Link>
+    <BrowserRouter>
+      <Navbar theme={theme} setTheme={setTheme} user={user} />
 
-        {/* Desktop nav */}
-        <div className="desktop-nav" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-          {navItems.map(({ path, label, badge }) => (
-            <Link key={path} to={path} style={{ padding: '0.5rem 1rem', borderRadius: '8px', color: isActive(path) ? activeColor : inactiveColor, fontWeight: isActive(path) ? '600' : '400', background: isActive(path) ? activeBg : 'transparent', transition: 'all 0.2s', display: 'flex', alignItems: 'center', gap: '0.3rem', whiteSpace: 'nowrap', textDecoration: 'none' }}>
-              {label}
-              {badge > 0 && (
-                <span style={{ background: '#6c63ff', color: 'white', borderRadius: '100px', fontSize: '0.65rem', fontWeight: '700', padding: '1px 6px', minWidth: '18px', textAlign: 'center' }}>
-                  {badge > 9 ? '9+' : badge}
-                </span>
-              )}
-            </Link>
-          ))}
+      <Routes>
+        <Route path="/login" element={user ? <Navigate to="/" /> : <Login />} />
 
-          <button
-            onClick={() => setTheme(isLight ? 'dark' : 'light')}
-            style={{ padding: '0.5rem 0.75rem', background: 'transparent', border: `1px solid ${navBorder}`, borderRadius: '8px', cursor: 'pointer', fontSize: '1rem', color: inactiveColor }}
-            title="Toggle theme"
-          >
-            {isLight ? '🌙' : '☀️'}
-          </button>
+        <Route path="/" element={<ProtectedRoute user={user}><Home theme={theme} /></ProtectedRoute>} />
+        <Route path="/browse" element={<ProtectedRoute user={user}><Browse theme={theme} /></ProtectedRoute>} />
+        <Route path="/profile" element={<ProtectedRoute user={user}><Profile theme={theme} /></ProtectedRoute>} />
+        <Route path="/connections" element={<ProtectedRoute user={user}><Connections theme={theme} /></ProtectedRoute>} />
+        <Route path="/chat/:userId" element={<ProtectedRoute user={user}><Chat theme={theme} /></ProtectedRoute>} />
+        <Route path="/game-levels" element={<ProtectedRoute user={user}><GameLevels theme={theme} /></ProtectedRoute>} />
+        <Route path="/groups" element={<ProtectedRoute user={user}><Groups theme={theme} /></ProtectedRoute>} />
+        <Route path="/groups/:groupId" element={<ProtectedRoute user={user}><GroupChat theme={theme} /></ProtectedRoute>} />
+        <Route path="/invite/:inviteCode" element={<ProtectedRoute user={user}><InvitePage theme={theme} /></ProtectedRoute>} />
+        <Route path="/reset-password" element={<ResetPassword />} />
+        <Route path="/messages" element={<ProtectedRoute user={user}><Messages theme={theme} /></ProtectedRoute>} />
+        <Route path="/user/:userId" element={<ProtectedRoute user={user}><UserProfile theme={theme} /></ProtectedRoute>} />
+        <Route path="/notifications" element={<ProtectedRoute user={user}><Notifications theme={theme} /></ProtectedRoute>} />
+        <Route path="/search" element={<ProtectedRoute user={user}><Search theme={theme} /></ProtectedRoute>} />
+        <Route path="/achievements" element={<ProtectedRoute user={user}><AchievementsPage theme={theme} /></ProtectedRoute>} />
 
-          <button
-            onClick={handleLogout}
-            style={{ marginLeft: '0.25rem', padding: '0.5rem 1.25rem', background: 'transparent', color: inactiveColor, border: `1px solid ${isLight ? 'rgba(0,0,0,0.15)' : 'rgba(255,255,255,0.15)'}`, borderRadius: '8px', cursor: 'pointer', fontFamily: 'Inter, sans-serif', fontSize: '0.9rem' }}
-          >
-            Logout
-          </button>
-        </div>
+        <Route path="/admin" element={<ProtectedRoute user={user}><AdminPanel theme={theme} /></ProtectedRoute>} />
 
-        {/* Hamburger */}
-        <button
-          onClick={() => setMenuOpen(!menuOpen)}
-          className="hamburger"
-          style={{ display: 'none', background: 'none', border: 'none', color: isLight ? '#333' : 'white', fontSize: '1.5rem', cursor: 'pointer', padding: '0.5rem', position: 'relative' }}
-        >
-          {menuOpen ? '✕' : '☰'}
-          {!menuOpen && (unreadMessages > 0 || unreadNotifs > 0) && (
-            <span style={{ position: 'absolute', top: '6px', right: '6px', width: '8px', height: '8px', borderRadius: '50%', background: '#6c63ff' }} />
-          )}
-        </button>
-      </nav>
-
-      {/* Mobile menu */}
-      {menuOpen && (
-        <div style={{ position: 'fixed', top: '64px', left: 0, right: 0, bottom: 0, background: isLight ? 'rgba(240,240,247,0.98)' : 'rgba(15,15,26,0.98)', zIndex: 99, display: 'flex', flexDirection: 'column', padding: '1.5rem', gap: '0.5rem', overflowY: 'auto' }}>
-          {navItems.map(({ path, label, badge }) => (
-            <Link key={path} to={path} style={{ padding: '1rem 1.25rem', borderRadius: '12px', color: isActive(path) ? '#a78bfa' : isLight ? '#333' : 'white', fontWeight: isActive(path) ? '700' : '500', background: isActive(path) ? 'rgba(108,99,255,0.15)' : isLight ? 'rgba(0,0,0,0.04)' : 'rgba(255,255,255,0.03)', border: `1px solid ${isLight ? 'rgba(0,0,0,0.08)' : 'rgba(255,255,255,0.06)'}`, fontSize: '1.05rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', textDecoration: 'none' }}>
-              {label === '🔔' ? '🔔 Notifications' : label === '🔍' ? '🔍 Search' : label}
-              {badge > 0 && (
-                <span style={{ background: '#6c63ff', color: 'white', borderRadius: '100px', fontSize: '0.75rem', fontWeight: '700', padding: '2px 8px' }}>
-                  {badge > 9 ? '9+' : badge}
-                </span>
-              )}
-            </Link>
-          ))}
-          <button onClick={() => setTheme(isLight ? 'dark' : 'light')} style={{ padding: '1rem 1.25rem', background: isLight ? 'rgba(0,0,0,0.04)' : 'rgba(255,255,255,0.03)', border: `1px solid ${isLight ? 'rgba(0,0,0,0.08)' : 'rgba(255,255,255,0.06)'}`, borderRadius: '12px', cursor: 'pointer', fontFamily: 'Inter, sans-serif', fontSize: '1.05rem', color: isLight ? '#333' : 'white', textAlign: 'left' }}>
-            {isLight ? '🌙 Dark Mode' : '☀️ Light Mode'}
-          </button>
-          <button onClick={handleLogout} style={{ marginTop: '0.5rem', padding: '1rem', background: 'transparent', color: '#ef4444', border: '1px solid rgba(239,68,68,0.2)', borderRadius: '12px', cursor: 'pointer', fontFamily: 'Inter, sans-serif', fontSize: '1rem', fontWeight: '600' }}>
-            Logout
-          </button>
-        </div>
-      )}
-
-      <style>{`
-        @media (max-width: 768px) {
-          .desktop-nav { display: none !important; }
-          .hamburger { display: block !important; }
-        }
-      `}</style>
-    </>
+        <Route path="*" element={<Navigate to={user ? "/" : "/login"} />} />
+      </Routes>
+    </BrowserRouter>
   )
 }
