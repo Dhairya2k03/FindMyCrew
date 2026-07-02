@@ -103,7 +103,7 @@ export default function GroupChat({ theme }) {
       setEvents(eventsData || [])
 
       // Load polls
-      const { data: pollsData } = await supabase.from('group_polls').select('*').eq('group_id', groupId).order('created_at', { ascending: false })
+      const { data: pollsData } = await supabase.from('group_polls').select('*').eq('group_id', groupId).order('created_at', { ascending: true })
       setPolls(pollsData || [])
       if (pollsData && pollsData.length > 0) {
         const pollIds = pollsData.map(p => p.id)
@@ -157,7 +157,7 @@ export default function GroupChat({ theme }) {
         setEvents(prev => prev.filter(e => e.id !== payload.old.id))
       })
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'group_polls', filter: `group_id=eq.${groupId}` }, payload => {
-        setPolls(prev => [payload.new, ...prev])
+        setPolls(prev => { const exists = prev.some(p => p.id === payload.new.id); if (exists) return prev; return [...prev, payload.new] })
       })
       .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'group_polls' }, payload => {
         setPolls(prev => prev.filter(p => p.id !== payload.old.id))
@@ -174,7 +174,7 @@ export default function GroupChat({ theme }) {
     return () => supabase.removeChannel(channel)
   }, [groupId])
 
-  useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages])
+  useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages, polls])
 
   useEffect(() => {
     const handler = () => { setRoleMenuOpen(null); setEmojiPickerMsg(null) }
@@ -231,16 +231,18 @@ export default function GroupChat({ theme }) {
     const validOptions = newPoll.options.filter(o => o.trim())
     if (!newPoll.question.trim()) return alert('Please enter a question')
     if (validOptions.length < 2) return alert('Please add at least 2 options')
-    const { error } = await supabase.from('group_polls').insert({
+    const { data, error } = await supabase.from('group_polls').insert({
       group_id: groupId,
       question: newPoll.question.trim(),
       options: validOptions,
       created_by: currentUser.id
-    })
+    }).select().single()
     if (error) return alert(error.message)
+    if (data) setPolls(prev => { const exists = prev.some(p => p.id === data.id); if (exists) return prev; return [...prev, data] })
+    const question = newPoll.question.trim()
     setNewPoll({ question: '', options: ['', ''] })
     setShowPollForm(false)
-    postSystemMessage(`📊 ${getName(currentUser.id)} created a poll: "${newPoll.question.trim()}"`)
+    postSystemMessage(`📊 ${getName(currentUser.id)} created a poll: "${question}"`)
   }
 
   const votePoll = async (pollId, optionIndex) => {
@@ -257,6 +259,7 @@ export default function GroupChat({ theme }) {
 
   const deletePoll = async (pollId) => {
     await supabase.from('group_polls').delete().eq('id', pollId)
+    setPolls(prev => prev.filter(p => p.id !== pollId))
   }
 
   const toggleReaction = async (msgId, emoji) => {
@@ -400,7 +403,7 @@ export default function GroupChat({ theme }) {
     const totalVotes = votes.length
     const canDelete = poll.created_by === currentUser?.id || isLeader || isAdmin
     return (
-      <div style={{ background: isLight ? 'rgba(108,99,255,0.06)' : 'rgba(108,99,255,0.08)', border: '1px solid rgba(108,99,255,0.2)', borderRadius: '14px', padding: '1rem 1.25rem', marginBottom: '0.75rem' }}>
+      <div style={{ background: isLight ? 'rgba(108,99,255,0.06)' : 'rgba(108,99,255,0.08)', border: '1px solid rgba(108,99,255,0.2)', borderRadius: '14px', padding: '1rem 1.25rem', marginBottom: '0.5rem', maxWidth: '420px' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '0.75rem' }}>
           <div>
             <p style={{ fontSize: '0.7rem', color: '#a78bfa', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.25rem' }}>📊 Poll</p>
@@ -437,6 +440,12 @@ export default function GroupChat({ theme }) {
 
   const sortedMembers = [...members].sort((a, b) => { const order = { admin: 0, elder: 1, member: 2 }; return (order[a.role] ?? 2) - (order[b.role] ?? 2) })
   const formatEventTime = (dt) => new Date(dt).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+
+  // Merge messages and polls into a single chronological timeline
+  const timeline = [
+    ...messages.map(m => ({ type: 'message', data: m, created_at: m.created_at })),
+    ...polls.map(p => ({ type: 'poll', data: p, created_at: p.created_at })),
+  ].sort((a, b) => new Date(a.created_at) - new Date(b.created_at))
 
   const Sidebar = () => (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', height: '100%', overflowY: 'auto' }}>
@@ -612,20 +621,20 @@ export default function GroupChat({ theme }) {
           )}
 
           <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '0.75rem', marginBottom: '1rem' }}>
-            {polls.length > 0 && (
-              <div style={{ marginBottom: '0.25rem' }}>
-                {polls.map(poll => <PollCard key={poll.id} poll={poll} />)}
-              </div>
-            )}
-
-            {messages.length === 0 && polls.length === 0 && (
+            {timeline.length === 0 && (
               <div style={{ textAlign: 'center', color: mutedColor, marginTop: '3rem' }}>
                 <p style={{ fontSize: '2rem', marginBottom: '0.5rem' }}>🎮</p>
                 <p>No messages yet. Start the conversation!</p>
               </div>
             )}
 
-            {messages.map(msg => {
+            {timeline.map(item => {
+              if (item.type === 'poll') {
+                return <PollCard key={`poll-${item.data.id}`} poll={item.data} />
+              }
+
+              const msg = item.data
+
               if (msg.is_system) {
                 return (
                   <div key={msg.id} style={{ textAlign: 'center', margin: '0.25rem 0' }}>
