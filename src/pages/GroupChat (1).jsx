@@ -231,18 +231,20 @@ export default function GroupChat({ theme }) {
     const validOptions = newPoll.options.filter(o => o.trim())
     if (!newPoll.question.trim()) return alert('Please enter a question')
     if (validOptions.length < 2) return alert('Please add at least 2 options')
+    const question = newPoll.question.trim()
+    // Post the announcement first so its timestamp is earlier than the poll's,
+    // ensuring the poll card renders directly below its "created a poll" message.
+    await postSystemMessage(`📊 ${getName(currentUser.id)} created a poll: "${question}"`)
     const { data, error } = await supabase.from('group_polls').insert({
       group_id: groupId,
-      question: newPoll.question.trim(),
+      question,
       options: validOptions,
       created_by: currentUser.id
     }).select().single()
     if (error) return alert(error.message)
     if (data) setPolls(prev => { const exists = prev.some(p => p.id === data.id); if (exists) return prev; return [...prev, data] })
-    const question = newPoll.question.trim()
     setNewPoll({ question: '', options: ['', ''] })
     setShowPollForm(false)
-    postSystemMessage(`📊 ${getName(currentUser.id)} created a poll: "${question}"`)
   }
 
   const votePoll = async (pollId, optionIndex) => {
