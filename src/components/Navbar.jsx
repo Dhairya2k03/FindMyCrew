@@ -1,7 +1,7 @@
 import { Link, useNavigate, useLocation } from 'react-router-dom'
 import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabaseClient'
-import { ADMIN_ID } from '../lib/constants'
+import { ADMIN_EMAIL } from '../lib/constants'
 
 export default function Navbar({ theme, setTheme, user }) {
   const navigate = useNavigate()
@@ -10,7 +10,7 @@ export default function Navbar({ theme, setTheme, user }) {
   const [unreadNotifs, setUnreadNotifs] = useState(0)
   const [menuOpen, setMenuOpen] = useState(false)
 
-  const isAdmin = user?.id === ADMIN_ID
+  const isAdmin = user?.email?.toLowerCase() === ADMIN_EMAIL.toLowerCase()
   const isLight = theme === 'light'
 
   useEffect(() => {

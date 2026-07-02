@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabaseClient'
-import { ADMIN_ID } from '../lib/constants'
+import { ADMIN_EMAIL } from '../lib/constants'
 
 export default function AdminPanel({ theme }) {
   const navigate = useNavigate()
@@ -25,7 +25,7 @@ export default function AdminPanel({ theme }) {
     const load = async () => {
       const { data: { user } } = await supabase.auth.getUser()
       setCurrentUser(user)
-      if (user?.id !== ADMIN_ID) { navigate('/'); return }
+      if (user?.email?.toLowerCase() !== ADMIN_EMAIL.toLowerCase()) { navigate('/'); return }
 
       const { data: reportsData } = await supabase
         .from('reports')
@@ -73,7 +73,7 @@ export default function AdminPanel({ theme }) {
     </div>
   )
 
-  if (currentUser?.id !== ADMIN_ID) return null
+  if (currentUser?.email?.toLowerCase() !== ADMIN_EMAIL.toLowerCase()) return null
 
   return (
     <div style={{ minHeight: 'calc(100vh - 64px)', background: bg, padding: '2rem' }}>

@@ -1,1 +1,1 @@
-export const ADMIN_ID = '87d930f5-4ea4-44f5-9f3e-3f1fbf254c38'
+export const ADMIN_EMAIL = 'dhairya2025ccsu@gmail.com'
