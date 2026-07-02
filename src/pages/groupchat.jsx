@@ -41,18 +41,22 @@ export default function GroupChat({ theme }) {
   const [showPinned, setShowPinned] = useState(true)
   const [reportMsgId, setReportMsgId] = useState(null)
   const [reportReason, setReportReason] = useState('')
+  const [polls, setPolls] = useState([])
+  const [pollVotes, setPollVotes] = useState({})
+  const [showPollForm, setShowPollForm] = useState(false)
+  const [newPoll, setNewPoll] = useState({ question: '', options: ['', ''] })
   const bottomRef = useRef(null)
 
   const isLight = theme === 'light'
-  const bg         = isLight ? '#f0f0f7'                 : '#0f0f1a'
-  const border     = isLight ? 'rgba(0,0,0,0.08)'        : 'rgba(255,255,255,0.08)'
-  const textColor  = isLight ? '#111'                    : 'white'
-  const mutedColor = isLight ? '#555'                    : '#888'
-  const inputBg    = isLight ? 'rgba(0,0,0,0.04)'        : 'rgba(255,255,255,0.05)'
-  const inputBorder= isLight ? 'rgba(0,0,0,0.1)'         : 'rgba(255,255,255,0.1)'
-  const bubbleOther= isLight ? 'rgba(0,0,0,0.07)'        : 'rgba(255,255,255,0.08)'
-  const actionBtn  = isLight ? 'rgba(0,0,0,0.06)'        : 'rgba(255,255,255,0.08)'
-  const actionBord = isLight ? 'rgba(0,0,0,0.12)'        : 'rgba(255,255,255,0.12)'
+  const bg          = isLight ? '#f0f0f7'                : '#0f0f1a'
+  const border      = isLight ? 'rgba(0,0,0,0.08)'       : 'rgba(255,255,255,0.08)'
+  const textColor   = isLight ? '#111'                   : 'white'
+  const mutedColor  = isLight ? '#555'                   : '#888'
+  const inputBg     = isLight ? 'rgba(0,0,0,0.04)'       : 'rgba(255,255,255,0.05)'
+  const inputBorder = isLight ? 'rgba(0,0,0,0.1)'        : 'rgba(255,255,255,0.1)'
+  const bubbleOther = isLight ? 'rgba(0,0,0,0.07)'       : 'rgba(255,255,255,0.08)'
+  const actionBtn   = isLight ? 'rgba(0,0,0,0.06)'       : 'rgba(255,255,255,0.08)'
+  const actionBord  = isLight ? 'rgba(0,0,0,0.12)'       : 'rgba(255,255,255,0.12)'
 
   useEffect(() => {
     const load = async () => {
@@ -97,8 +101,26 @@ export default function GroupChat({ theme }) {
       }
       const { data: eventsData } = await supabase.from('group_events').select('*').eq('group_id', groupId).order('event_time', { ascending: true })
       setEvents(eventsData || [])
-      const { data: pinned } = await supabase.from('pinned_messages').select('*').eq('chat_type', 'group').eq('chat_id', groupId).order('created_at', { ascending: false }).limit(1).single()
-      if (pinned) setPinnedMessage(pinned)
+
+      // Load polls
+      const { data: pollsData } = await supabase.from('group_polls').select('*').eq('group_id', groupId).order('created_at', { ascending: false })
+      setPolls(pollsData || [])
+      if (pollsData && pollsData.length > 0) {
+        const pollIds = pollsData.map(p => p.id)
+        const { data: votes } = await supabase.from('group_poll_votes').select('*').in('poll_id', pollIds)
+        const voteMap = {}
+        votes?.forEach(v => {
+          if (!voteMap[v.poll_id]) voteMap[v.poll_id] = []
+          voteMap[v.poll_id].push(v)
+        })
+        setPollVotes(voteMap)
+      }
+
+      try {
+        const { data: pinned } = await supabase.from('pinned_messages').select('*').eq('chat_type', 'group').eq('chat_id', groupId).order('created_at', { ascending: false }).limit(1).single()
+        if (pinned) setPinnedMessage(pinned)
+      } catch {}
+
       const presenceCh = supabase.channel('group-presence-' + groupId, { config: { presence: { key: user.id } } })
       presenceCh
         .on('presence', { event: 'sync' }, () => { setOnlineMembers(new Set(Object.keys(presenceCh.presenceState()))) })
@@ -117,7 +139,7 @@ export default function GroupChat({ theme }) {
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'group_announcements', filter: `group_id=eq.${groupId}` }, payload => {
         setAnnouncements(prev => [payload.new, ...prev])
       })
-      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'group_announcements', filter: `group_id=eq.${groupId}` }, payload => {
+      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'group_announcements' }, payload => {
         setAnnouncements(prev => prev.filter(a => a.id !== payload.old.id))
       })
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'group_message_reactions' }, payload => {
@@ -131,8 +153,22 @@ export default function GroupChat({ theme }) {
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'group_events', filter: `group_id=eq.${groupId}` }, payload => {
         setEvents(prev => [...prev, payload.new].sort((a, b) => new Date(a.event_time) - new Date(b.event_time)))
       })
-      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'group_events', filter: `group_id=eq.${groupId}` }, payload => {
+      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'group_events' }, payload => {
         setEvents(prev => prev.filter(e => e.id !== payload.old.id))
+      })
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'group_polls', filter: `group_id=eq.${groupId}` }, payload => {
+        setPolls(prev => [payload.new, ...prev])
+      })
+      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'group_polls' }, payload => {
+        setPolls(prev => prev.filter(p => p.id !== payload.old.id))
+      })
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'group_poll_votes' }, payload => {
+        const v = payload.new
+        setPollVotes(prev => ({ ...prev, [v.poll_id]: [...(prev[v.poll_id] || []), v] }))
+      })
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'group_poll_votes' }, payload => {
+        const v = payload.new
+        setPollVotes(prev => ({ ...prev, [v.poll_id]: (prev[v.poll_id] || []).map(x => x.id === v.id ? v : x) }))
       })
       .subscribe()
     return () => supabase.removeChannel(channel)
@@ -157,15 +193,7 @@ export default function GroupChat({ theme }) {
   }
 
   const postSystemMessage = async (content) => {
-    console.log('Posting system message:', content, 'groupId:', groupId, 'sender:', currentUser?.id)
-    const { data, error } = await supabase.from('group_messages').insert({
-      group_id: groupId,
-      sender_id: currentUser.id,
-      content,
-      is_system: true
-    })
-    if (error) console.error('System message error:', error)
-    else console.log('System message posted successfully')
+    await supabase.from('group_messages').insert({ group_id: groupId, sender_id: currentUser.id, content, is_system: true })
   }
 
   const leaveGroup = async () => {
@@ -178,37 +206,57 @@ export default function GroupChat({ theme }) {
 
   const pinMessage = async (msg) => {
     if (myRole !== 'leader' && myRole !== 'admin') return
-    await supabase.from('pinned_messages').delete().eq('chat_type', 'group').eq('chat_id', groupId)
-    const { data } = await supabase.from('pinned_messages').insert({
-      chat_type: 'group', chat_id: groupId, message_id: msg.id,
-      message_content: msg.content, pinned_by: currentUser.id
-    }).select().single()
+    try { await supabase.from('pinned_messages').delete().eq('chat_type', 'group').eq('chat_id', groupId) } catch {}
+    const { data } = await supabase.from('pinned_messages').insert({ chat_type: 'group', chat_id: groupId, message_id: msg.id, message_content: msg.content, pinned_by: currentUser.id }).select().single()
     if (data) { setPinnedMessage(data); setShowPinned(true) }
   }
 
   const unpinMessage = async () => {
-    await supabase.from('pinned_messages').delete().eq('chat_type', 'group').eq('chat_id', groupId)
+    try { await supabase.from('pinned_messages').delete().eq('chat_type', 'group').eq('chat_id', groupId) } catch {}
     setPinnedMessage(null)
   }
 
   const submitReport = async (msg) => {
     if (!reportReason.trim()) return alert('Please enter a reason')
-    const adminId = group?.leader_id
-    await supabase.from('reports').insert({
-      reporter_id: currentUser.id, reported_user_id: msg.sender_id,
-      context_type: 'group_message', context_id: groupId,
-      message_content: msg.content, reason: reportReason.trim()
-    })
+    await supabase.from('reports').insert({ reporter_id: currentUser.id, reported_user_id: msg.sender_id, context_type: 'group_message', context_id: groupId, message_content: msg.content, reason: reportReason.trim() })
     const reporterName = profiles[currentUser.id]?.username || 'Someone'
     const reportedName = profiles[msg.sender_id]?.username || 'a member'
-    await supabase.from('notifications').insert({
-      user_id: adminId, type: 'report',
-      content: `🚨 ${reporterName} reported ${reportedName} in "${group?.name}": "${reportReason.trim()}"`,
-      read: false
-    })
+    await supabase.from('notifications').insert({ user_id: group?.leader_id, type: 'report', content: `🚨 ${reporterName} reported ${reportedName} in "${group?.name}": "${reportReason.trim()}"`, read: false })
     setReportMsgId(null)
     setReportReason('')
     alert('Report submitted. The group leader has been notified.')
+  }
+
+  const createPoll = async () => {
+    const validOptions = newPoll.options.filter(o => o.trim())
+    if (!newPoll.question.trim()) return alert('Please enter a question')
+    if (validOptions.length < 2) return alert('Please add at least 2 options')
+    const { error } = await supabase.from('group_polls').insert({
+      group_id: groupId,
+      question: newPoll.question.trim(),
+      options: validOptions,
+      created_by: currentUser.id
+    })
+    if (error) return alert(error.message)
+    setNewPoll({ question: '', options: ['', ''] })
+    setShowPollForm(false)
+    postSystemMessage(`📊 ${getName(currentUser.id)} created a poll: "${newPoll.question.trim()}"`)
+  }
+
+  const votePoll = async (pollId, optionIndex) => {
+    const existing = (pollVotes[pollId] || []).find(v => v.user_id === currentUser.id)
+    if (existing) {
+      if (existing.option_index === optionIndex) return
+      await supabase.from('group_poll_votes').update({ option_index: optionIndex }).eq('id', existing.id)
+      setPollVotes(prev => ({ ...prev, [pollId]: prev[pollId].map(v => v.id === existing.id ? { ...v, option_index: optionIndex } : v) }))
+    } else {
+      const { data } = await supabase.from('group_poll_votes').insert({ poll_id: pollId, user_id: currentUser.id, option_index: optionIndex }).select().single()
+      if (data) setPollVotes(prev => ({ ...prev, [pollId]: [...(prev[pollId] || []), data] }))
+    }
+  }
+
+  const deletePoll = async (pollId) => {
+    await supabase.from('group_polls').delete().eq('id', pollId)
   }
 
   const toggleReaction = async (msgId, emoji) => {
@@ -299,6 +347,7 @@ export default function GroupChat({ theme }) {
   const canManageMembers = isLeader || isAdmin
   const canAnnounce = isLeader || isAdmin || myRole === 'elder'
   const canPin = isLeader || isAdmin
+  const canPoll = isLeader || isAdmin || myRole === 'elder'
 
   const getName = (uid) => { const p = profiles[uid]; return p?.username || p?.email?.split('@')[0] || 'Player' }
   const getAvatar = (uid) => profiles[uid]?.avatar_url || null
@@ -345,6 +394,47 @@ export default function GroupChat({ theme }) {
     )
   }
 
+  const PollCard = ({ poll }) => {
+    const votes = pollVotes[poll.id] || []
+    const myVote = votes.find(v => v.user_id === currentUser?.id)
+    const totalVotes = votes.length
+    const canDelete = poll.created_by === currentUser?.id || isLeader || isAdmin
+    return (
+      <div style={{ background: isLight ? 'rgba(108,99,255,0.06)' : 'rgba(108,99,255,0.08)', border: '1px solid rgba(108,99,255,0.2)', borderRadius: '14px', padding: '1rem 1.25rem', marginBottom: '0.75rem' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '0.75rem' }}>
+          <div>
+            <p style={{ fontSize: '0.7rem', color: '#a78bfa', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.25rem' }}>📊 Poll</p>
+            <p style={{ fontWeight: '600', fontSize: '0.95rem', color: textColor }}>{poll.question}</p>
+          </div>
+          {canDelete && <button onClick={() => deletePoll(poll.id)} style={{ background: 'none', border: 'none', color: mutedColor, cursor: 'pointer', fontSize: '0.8rem', padding: '0 0.25rem' }}>✕</button>}
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+          {poll.options.map((option, idx) => {
+            const optVotes = votes.filter(v => v.option_index === idx).length
+            const pct = totalVotes > 0 ? Math.round((optVotes / totalVotes) * 100) : 0
+            const isMyVote = myVote?.option_index === idx
+            return (
+              <button key={idx} onClick={() => votePoll(poll.id, idx)} style={{ background: isMyVote ? 'rgba(108,99,255,0.2)' : isLight ? 'rgba(0,0,0,0.04)' : 'rgba(255,255,255,0.04)', border: isMyVote ? '1px solid rgba(108,99,255,0.5)' : `1px solid ${border}`, borderRadius: '10px', padding: '0.6rem 0.85rem', cursor: 'pointer', textAlign: 'left', position: 'relative', overflow: 'hidden', fontFamily: 'Inter, sans-serif' }}>
+                <div style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: `${pct}%`, background: isMyVote ? 'rgba(108,99,255,0.15)' : isLight ? 'rgba(0,0,0,0.05)' : 'rgba(255,255,255,0.04)', transition: 'width 0.4s ease', zIndex: 0 }} />
+                <div style={{ position: 'relative', zIndex: 1, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ fontSize: '0.9rem', color: textColor, fontWeight: isMyVote ? '600' : '400' }}>
+                    {isMyVote ? '✓ ' : ''}{option}
+                  </span>
+                  <span style={{ fontSize: '0.8rem', color: isMyVote ? '#a78bfa' : mutedColor, fontWeight: '600' }}>
+                    {pct}% ({optVotes})
+                  </span>
+                </div>
+              </button>
+            )
+          })}
+        </div>
+        <p style={{ fontSize: '0.75rem', color: mutedColor, marginTop: '0.5rem' }}>
+          {totalVotes} vote{totalVotes !== 1 ? 's' : ''} · {myVote ? 'You voted' : 'Tap to vote'}
+        </p>
+      </div>
+    )
+  }
+
   const sortedMembers = [...members].sort((a, b) => { const order = { admin: 0, elder: 1, member: 2 }; return (order[a.role] ?? 2) - (order[b.role] ?? 2) })
   const formatEventTime = (dt) => new Date(dt).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
 
@@ -358,9 +448,7 @@ export default function GroupChat({ theme }) {
         <div style={{ marginTop: '0.5rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <span style={{ fontSize: '0.75rem', color: ROLE_CONFIG[myRole]?.color || mutedColor }}>You are: {ROLE_CONFIG[myRole]?.label || 'Member'}</span>
           {!isLeader && myMembershipId && (
-            <button onClick={leaveGroup} style={{ background: 'transparent', border: '1px solid rgba(239,68,68,0.3)', color: '#ef4444', borderRadius: '6px', padding: '0.2rem 0.6rem', cursor: 'pointer', fontFamily: 'Inter, sans-serif', fontSize: '0.75rem', fontWeight: '600' }}>
-              Leave
-            </button>
+            <button onClick={leaveGroup} style={{ background: 'transparent', border: '1px solid rgba(239,68,68,0.3)', color: '#ef4444', borderRadius: '6px', padding: '0.2rem 0.6rem', cursor: 'pointer', fontFamily: 'Inter, sans-serif', fontSize: '0.75rem', fontWeight: '600' }}>Leave</button>
           )}
         </div>
       </div>
@@ -441,9 +529,9 @@ export default function GroupChat({ theme }) {
 
           {pinnedMessage && showPinned && (
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.6rem 1rem', background: 'rgba(108,99,255,0.1)', border: '1px solid rgba(108,99,255,0.25)', borderRadius: '10px', marginBottom: '0.75rem' }}>
-              <span style={{ fontSize: '0.85rem' }}>📌</span>
+              <span>📌</span>
               <p style={{ flex: 1, fontSize: '0.85rem', color: '#a78bfa', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{truncate(pinnedMessage.message_content, 60)}</p>
-              {canPin && <button onClick={unpinMessage} title="Unpin" style={{ background: 'none', border: 'none', color: mutedColor, cursor: 'pointer', fontSize: '0.75rem', padding: '0 0.25rem' }}>✕</button>}
+              {canPin && <button onClick={unpinMessage} style={{ background: 'none', border: 'none', color: mutedColor, cursor: 'pointer', fontSize: '0.75rem' }}>✕</button>}
               <button onClick={() => setShowPinned(false)} style={{ background: 'none', border: 'none', color: mutedColor, cursor: 'pointer', fontSize: '0.75rem' }}>▲</button>
             </div>
           )}
@@ -457,10 +545,10 @@ export default function GroupChat({ theme }) {
             <div style={{ marginBottom: '0.75rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
               {announcements.map(a => (
                 <div key={a.id} style={{ background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.2)', borderRadius: '10px', padding: '0.75rem 1rem', display: 'flex', alignItems: 'flex-start', gap: '0.75rem' }}>
-                  <span style={{ fontSize: '1rem', flexShrink: 0 }}>📢</span>
+                  <span>📢</span>
                   <p style={{ flex: 1, fontSize: '0.9rem', color: '#f5c842', lineHeight: 1.4 }}>{a.content}</p>
                   {(isLeader || isAdmin || a.created_by === currentUser?.id) && (
-                    <button onClick={() => deleteAnnouncement(a.id)} style={{ background: 'none', border: 'none', color: mutedColor, cursor: 'pointer', fontSize: '0.8rem', flexShrink: 0 }}>✕</button>
+                    <button onClick={() => deleteAnnouncement(a.id)} style={{ background: 'none', border: 'none', color: mutedColor, cursor: 'pointer', fontSize: '0.8rem' }}>✕</button>
                   )}
                 </div>
               ))}
@@ -487,6 +575,28 @@ export default function GroupChat({ theme }) {
             </div>
           )}
 
+          {canPoll && showPollForm && (
+            <div style={{ marginBottom: '0.75rem', background: isLight ? 'rgba(108,99,255,0.04)' : 'rgba(108,99,255,0.08)', border: '1px solid rgba(108,99,255,0.2)', borderRadius: '12px', padding: '1rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+              <p style={{ fontWeight: '600', fontSize: '0.9rem', color: '#a78bfa', margin: 0 }}>📊 Create Poll</p>
+              <input type="text" placeholder="Ask a question..." value={newPoll.question} onChange={e => setNewPoll(p => ({ ...p, question: e.target.value }))} style={{ padding: '0.6rem 1rem', borderRadius: '8px', border: '1px solid rgba(108,99,255,0.2)', background: inputBg, color: textColor, fontFamily: 'Inter, sans-serif', fontSize: '0.9rem', outline: 'none' }} />
+              {newPoll.options.map((opt, idx) => (
+                <div key={idx} style={{ display: 'flex', gap: '0.5rem' }}>
+                  <input type="text" placeholder={`Option ${idx + 1}...`} value={opt} onChange={e => { const opts = [...newPoll.options]; opts[idx] = e.target.value; setNewPoll(p => ({ ...p, options: opts })) }} style={{ flex: 1, padding: '0.6rem 1rem', borderRadius: '8px', border: `1px solid ${border}`, background: inputBg, color: textColor, fontFamily: 'Inter, sans-serif', fontSize: '0.9rem', outline: 'none' }} />
+                  {newPoll.options.length > 2 && (
+                    <button onClick={() => setNewPoll(p => ({ ...p, options: p.options.filter((_, i) => i !== idx) }))} style={{ background: 'transparent', border: 'none', color: '#ef4444', cursor: 'pointer', fontSize: '1rem' }}>✕</button>
+                  )}
+                </div>
+              ))}
+              {newPoll.options.length < 6 && (
+                <button onClick={() => setNewPoll(p => ({ ...p, options: [...p.options, ''] }))} style={{ background: 'transparent', border: `1px dashed ${border}`, color: mutedColor, borderRadius: '8px', padding: '0.5rem', cursor: 'pointer', fontFamily: 'Inter, sans-serif', fontSize: '0.85rem' }}>+ Add Option</button>
+              )}
+              <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.25rem' }}>
+                <button onClick={createPoll} style={{ flex: 1, padding: '0.6rem', background: 'rgba(108,99,255,0.2)', color: '#a78bfa', border: '1px solid rgba(108,99,255,0.3)', borderRadius: '8px', cursor: 'pointer', fontFamily: 'Inter, sans-serif', fontWeight: '600' }}>Create Poll</button>
+                <button onClick={() => setShowPollForm(false)} style={{ padding: '0.6rem 0.75rem', background: 'transparent', color: mutedColor, border: `1px solid ${border}`, borderRadius: '8px', cursor: 'pointer', fontFamily: 'Inter, sans-serif' }}>✕</button>
+              </div>
+            </div>
+          )}
+
           {reportMsgId && (
             <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 300, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
               <div style={{ background: isLight ? '#f0f0f7' : '#1a1a2e', border: `1px solid ${border}`, borderRadius: '16px', padding: '1.5rem', width: '90%', maxWidth: '420px', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
@@ -501,13 +611,20 @@ export default function GroupChat({ theme }) {
             </div>
           )}
 
-          <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '1rem', marginBottom: '1rem' }}>
-            {messages.length === 0 && (
+          <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '0.75rem', marginBottom: '1rem' }}>
+            {polls.length > 0 && (
+              <div style={{ marginBottom: '0.25rem' }}>
+                {polls.map(poll => <PollCard key={poll.id} poll={poll} />)}
+              </div>
+            )}
+
+            {messages.length === 0 && polls.length === 0 && (
               <div style={{ textAlign: 'center', color: mutedColor, marginTop: '3rem' }}>
                 <p style={{ fontSize: '2rem', marginBottom: '0.5rem' }}>🎮</p>
                 <p>No messages yet. Start the conversation!</p>
               </div>
             )}
+
             {messages.map(msg => {
               if (msg.is_system) {
                 return (
@@ -577,6 +694,7 @@ export default function GroupChat({ theme }) {
           <div style={{ display: 'flex', gap: '0.75rem' }}>
             {canAnnounce && <button onClick={() => setShowAnnouncementInput(!showAnnouncementInput)} style={{ padding: '0.85rem', background: showAnnouncementInput ? 'rgba(245,158,11,0.2)' : inputBg, color: showAnnouncementInput ? '#f59e0b' : '#a78bfa', border: showAnnouncementInput ? '1px solid rgba(245,158,11,0.3)' : `1px solid ${inputBorder}`, borderRadius: '10px', cursor: 'pointer', fontSize: '1.1rem', lineHeight: 1 }}>📢</button>}
             {canManageMembers && <button onClick={() => setShowEventForm(!showEventForm)} style={{ padding: '0.85rem', background: showEventForm ? 'rgba(16,185,129,0.2)' : inputBg, color: showEventForm ? '#10b981' : '#a78bfa', border: showEventForm ? '1px solid rgba(16,185,129,0.3)' : `1px solid ${inputBorder}`, borderRadius: '10px', cursor: 'pointer', fontSize: '1.1rem', lineHeight: 1 }}>📅</button>}
+            {canPoll && <button onClick={() => setShowPollForm(!showPollForm)} style={{ padding: '0.85rem', background: showPollForm ? 'rgba(108,99,255,0.2)' : inputBg, color: showPollForm ? '#a78bfa' : '#a78bfa', border: showPollForm ? '1px solid rgba(108,99,255,0.4)' : `1px solid ${inputBorder}`, borderRadius: '10px', cursor: 'pointer', fontSize: '1.1rem', lineHeight: 1 }}>📊</button>}
             <button onClick={() => setVoiceOpen(!voiceOpen)} style={{ padding: '0.85rem', background: voiceOpen ? 'rgba(16,185,129,0.15)' : inputBg, color: voiceOpen ? '#10b981' : '#a78bfa', border: voiceOpen ? '1px solid rgba(16,185,129,0.3)' : `1px solid ${inputBorder}`, borderRadius: '10px', cursor: 'pointer', fontSize: '1.2rem', lineHeight: 1 }}>🎙️</button>
             <input type="text" placeholder="Message the group..." value={newMessage} onChange={e => setNewMessage(e.target.value)} onKeyDown={e => e.key === 'Enter' && sendMessage()} style={{ flex: 1, padding: '0.85rem 1rem', borderRadius: '10px', border: `1px solid ${inputBorder}`, background: inputBg, color: textColor, fontFamily: 'Inter, sans-serif', fontSize: '0.95rem', outline: 'none' }} />
             <button onClick={sendMessage} style={{ padding: '0.85rem 1.5rem', background: 'linear-gradient(135deg, #6c63ff, #a78bfa)', color: 'white', border: 'none', borderRadius: '10px', cursor: 'pointer', fontFamily: 'Inter, sans-serif', fontWeight: '600' }}>Send</button>
