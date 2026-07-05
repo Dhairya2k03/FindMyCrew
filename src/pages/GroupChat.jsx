@@ -45,7 +45,13 @@ export default function GroupChat({ theme }) {
   const [pollVotes, setPollVotes] = useState({})
   const [showPollForm, setShowPollForm] = useState(false)
   const [newPoll, setNewPoll] = useState({ question: '', options: ['', ''] })
+  const [searchOpen, setSearchOpen] = useState(false)
+  const [searchQuery, setSearchQuery] = useState('')
+  const [searchResults, setSearchResults] = useState([])
+  const [highlightedMsgId, setHighlightedMsgId] = useState(null)
   const bottomRef = useRef(null)
+  const searchInputRef = useRef(null)
+  const msgRefs = useRef({})
 
   const isLight = theme === 'light'
   const bg          = isLight ? '#f0f0f7'                : '#0f0f1a'
@@ -177,6 +183,16 @@ export default function GroupChat({ theme }) {
     document.addEventListener('click', handler)
     return () => document.removeEventListener('click', handler)
   }, [])
+
+  useEffect(() => {
+    if (searchOpen) {
+      setTimeout(() => searchInputRef.current?.focus(), 100)
+    } else {
+      setSearchQuery('')
+      setSearchResults([])
+      setHighlightedMsgId(null)
+    }
+  }, [searchOpen])
 
   const sendMessage = async () => {
     if (!newMessage.trim()) return
@@ -328,6 +344,23 @@ export default function GroupChat({ theme }) {
     const link = `${window.location.origin}/invite/${code}`
     await navigator.clipboard.writeText(link)
     alert('Invite link copied to clipboard!')
+  }
+
+  const handleSearch = (q) => {
+    setSearchQuery(q)
+    if (!q.trim()) { setSearchResults([]); return }
+    const results = messages.filter(m =>
+      !m.is_system &&
+      m.content?.toLowerCase().includes(q.toLowerCase())
+    )
+    setSearchResults(results)
+  }
+
+  const jumpToMessage = (msgId) => {
+    setHighlightedMsgId(msgId)
+    const el = msgRefs.current[msgId]
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    setTimeout(() => setHighlightedMsgId(null), 2000)
   }
 
   const isLeader = group?.leader_id === currentUser?.id
@@ -518,8 +551,61 @@ export default function GroupChat({ theme }) {
               <p style={{ fontWeight: '700', fontSize: '0.95rem', color: textColor }}>{group?.name}</p>
               <p style={{ color: '#a78bfa', fontSize: '0.75rem' }}>{group?.game}</p>
             </div>
+            <button onClick={() => setSearchOpen(!searchOpen)} style={{ background: searchOpen ? 'rgba(108,99,255,0.2)' : inputBg, border: searchOpen ? '1px solid rgba(108,99,255,0.4)' : `1px solid ${inputBorder}`, color: searchOpen ? '#a78bfa' : mutedColor, borderRadius: '8px', padding: '0.4rem 0.75rem', cursor: 'pointer', fontSize: '0.9rem', fontFamily: 'Inter, sans-serif' }}>🔍</button>
             <button onClick={() => setSidebarOpen(true)} style={{ background: inputBg, border: `1px solid ${inputBorder}`, color: textColor, borderRadius: '8px', padding: '0.4rem 0.75rem', cursor: 'pointer', fontFamily: 'Inter, sans-serif', fontSize: '0.8rem' }}>👥 {members.length + 1}</button>
           </div>
+
+          <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '0.5rem' }}>
+            <button onClick={() => setSearchOpen(!searchOpen)} style={{ background: searchOpen ? 'rgba(108,99,255,0.2)' : inputBg, border: searchOpen ? '1px solid rgba(108,99,255,0.4)' : `1px solid ${inputBorder}`, color: searchOpen ? '#a78bfa' : mutedColor, borderRadius: '8px', padding: '0.5rem 0.75rem', cursor: 'pointer', fontSize: '0.9rem', fontFamily: 'Inter, sans-serif' }}>
+              🔍 Search
+            </button>
+          </div>
+
+          {searchOpen && (
+            <div style={{ marginBottom: '0.75rem', background: actionBtn, border: `1px solid ${border}`, borderRadius: '12px', padding: '0.75rem 1rem', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+              <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                <input
+                  ref={searchInputRef}
+                  type="text"
+                  placeholder="Search messages..."
+                  value={searchQuery}
+                  onChange={e => handleSearch(e.target.value)}
+                  style={{ flex: 1, padding: '0.6rem 1rem', borderRadius: '8px', border: `1px solid ${inputBorder}`, background: inputBg, color: textColor, fontFamily: 'Inter, sans-serif', fontSize: '0.9rem', outline: 'none' }}
+                />
+                {searchQuery && (
+                  <button onClick={() => handleSearch('')} style={{ background: 'none', border: 'none', color: mutedColor, cursor: 'pointer', fontSize: '1rem' }}>✕</button>
+                )}
+              </div>
+              {searchQuery && (
+                <div>
+                  <p style={{ color: mutedColor, fontSize: '0.75rem', marginBottom: '0.5rem' }}>
+                    {searchResults.length} result{searchResults.length !== 1 ? 's' : ''}
+                  </p>
+                  {searchResults.length === 0 ? (
+                    <p style={{ color: mutedColor, fontSize: '0.85rem' }}>No messages found for "{searchQuery}"</p>
+                  ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', maxHeight: '200px', overflowY: 'auto' }}>
+                      {searchResults.map(msg => {
+                        const isMine = msg.sender_id === currentUser?.id
+                        return (
+                          <button key={msg.id} onClick={() => jumpToMessage(msg.id)} style={{ background: inputBg, border: `1px solid ${border}`, borderRadius: '8px', padding: '0.5rem 0.75rem', cursor: 'pointer', textAlign: 'left', display: 'flex', flexDirection: 'column', gap: '0.2rem', fontFamily: 'Inter, sans-serif' }}>
+                            <span style={{ fontSize: '0.7rem', color: mutedColor }}>{isMine ? 'You' : getName(msg.sender_id)} · {new Date(msg.created_at).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
+                            <span style={{ fontSize: '0.85rem', color: textColor }}>
+                              {msg.content.split(new RegExp(`(${searchQuery})`, 'gi')).map((part, i) =>
+                                part.toLowerCase() === searchQuery.toLowerCase()
+                                  ? <mark key={i} style={{ background: '#f59e0b', color: '#000', borderRadius: '3px', padding: '0 2px' }}>{part}</mark>
+                                  : part
+                              )}
+                            </span>
+                          </button>
+                        )
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
 
           {pinnedMessage && showPinned && (
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.6rem 1rem', background: 'rgba(108,99,255,0.1)', border: '1px solid rgba(108,99,255,0.25)', borderRadius: '10px', marginBottom: '0.75rem' }}>
@@ -639,8 +725,9 @@ export default function GroupChat({ theme }) {
               const hasReactions = Object.keys(groupedRxns).length > 0
               const isHovered = hoveredMsg === msg.id
               const isPinned = pinnedMessage?.message_id === msg.id
+              const isHighlighted = highlightedMsgId === msg.id
               return (
-                <div key={msg.id} style={{ display: 'flex', gap: '0.75rem', alignItems: 'flex-start', flexDirection: isMine ? 'row-reverse' : 'row' }}
+                <div key={msg.id} ref={el => { if (el) msgRefs.current[msg.id] = el }} style={{ display: 'flex', gap: '0.75rem', alignItems: 'flex-start', flexDirection: isMine ? 'row-reverse' : 'row', background: isHighlighted ? 'rgba(245,158,11,0.1)' : 'transparent', borderRadius: '12px', padding: isHighlighted ? '0.25rem' : '0', transition: 'background 0.3s' }}
                   onMouseEnter={() => setHoveredMsg(msg.id)} onMouseLeave={() => setHoveredMsg(null)}>
                   <Avatar userId={msg.sender_id} size={32} />
                   <div style={{ maxWidth: '65%', display: 'flex', flexDirection: 'column', alignItems: isMine ? 'flex-end' : 'flex-start' }}>
@@ -651,7 +738,7 @@ export default function GroupChat({ theme }) {
                       </div>
                     )}
                     <div style={{ display: 'flex', flexDirection: isMine ? 'row-reverse' : 'row', alignItems: 'center', gap: '0.4rem' }}>
-                      <div style={{ background: isMine ? 'linear-gradient(135deg, #6c63ff, #a78bfa)' : bubbleOther, color: isMine ? 'white' : textColor, padding: '0.65rem 1rem', borderRadius: isMine ? '18px 18px 4px 18px' : '18px 18px 18px 4px', fontSize: '0.95rem', lineHeight: 1.4, outline: isPinned ? '2px solid rgba(108,99,255,0.4)' : 'none' }}>
+                      <div style={{ background: isMine ? 'linear-gradient(135deg, #6c63ff, #a78bfa)' : bubbleOther, color: isMine ? 'white' : textColor, padding: '0.65rem 1rem', borderRadius: isMine ? '18px 18px 4px 18px' : '18px 18px 18px 4px', fontSize: '0.95rem', lineHeight: 1.4, outline: isPinned ? '2px solid rgba(108,99,255,0.4)' : isHighlighted ? '2px solid #f59e0b' : 'none' }}>
                         {msg.content}
                       </div>
                       {isHovered && (
