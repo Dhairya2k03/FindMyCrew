@@ -49,6 +49,10 @@ export default function GroupChat({ theme }) {
   const [searchQuery, setSearchQuery] = useState('')
   const [searchResults, setSearchResults] = useState([])
   const [highlightedMsgId, setHighlightedMsgId] = useState(null)
+  const [editingMsgId, setEditingMsgId] = useState(null)
+  const [editContent, setEditContent] = useState('')
+  const [showMentions, setShowMentions] = useState(false)
+  const [mentionQuery, setMentionQuery] = useState('')
   const bottomRef = useRef(null)
   const searchInputRef = useRef(null)
   const msgRefs = useRef({})
@@ -198,6 +202,7 @@ export default function GroupChat({ theme }) {
     if (!newMessage.trim()) return
     const content = newMessage.trim()
     setNewMessage('')
+    setShowMentions(false)
     const tempMsg = { id: `temp-${Date.now()}`, group_id: groupId, sender_id: currentUser.id, content, created_at: new Date() }
     setMessages(prev => [...prev, tempMsg])
     const { data } = await supabase.from('group_messages').insert({ group_id: groupId, sender_id: currentUser.id, content }).select().single()
@@ -361,6 +366,69 @@ export default function GroupChat({ theme }) {
     const el = msgRefs.current[msgId]
     if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' })
     setTimeout(() => setHighlightedMsgId(null), 2000)
+  }
+
+  const startEdit = (msg) => {
+    setEditingMsgId(msg.id)
+    setEditContent(msg.content)
+    setEmojiPickerMsg(null)
+  }
+
+  const cancelEdit = () => {
+    setEditingMsgId(null)
+    setEditContent('')
+  }
+
+  const saveEdit = async (msgId) => {
+    const trimmed = editContent.trim()
+    if (!trimmed) return
+    setMessages(prev => prev.map(m => m.id === msgId ? { ...m, content: trimmed, edited_at: new Date().toISOString() } : m))
+    setEditingMsgId(null)
+    setEditContent('')
+    await supabase.from('group_messages').update({ content: trimmed, edited_at: new Date().toISOString() }).eq('id', msgId)
+  }
+
+  const mentionCandidates = [...new Set(Object.values(profiles).map(p => p.username || p.email?.split('@')[0]).filter(Boolean))]
+
+  const handleMessageInput = (e) => {
+    const val = e.target.value
+    setNewMessage(val)
+    const cursorPos = e.target.selectionStart
+    const textBeforeCursor = val.slice(0, cursorPos)
+    const match = textBeforeCursor.match(/@(\w*)$/)
+    if (match) {
+      setMentionQuery(match[1])
+      setShowMentions(true)
+    } else {
+      setShowMentions(false)
+    }
+  }
+
+  const insertMention = (username) => {
+    setNewMessage(prev => prev.replace(/@(\w*)$/, `@${username} `))
+    setShowMentions(false)
+  }
+
+  const filteredMentions = mentionCandidates.filter(u => u.toLowerCase().includes(mentionQuery.toLowerCase()))
+
+  const renderGroupMessage = (text) => {
+    let segments = [text]
+    if (mentionCandidates.length) {
+      const escaped = mentionCandidates.map(u => u.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+      const mentionRegex = new RegExp(`(@(?:${escaped.join('|')}))(?!\\w)`, 'g')
+      segments = text.split(mentionRegex)
+    }
+    return segments.map((seg, i) => {
+      const isMention = mentionCandidates.some(u => seg === `@${u}`)
+      if (isMention) {
+        return <span key={i} style={{ color: '#a78bfa', fontWeight: 600 }}>{seg}</span>
+      }
+      if (searchQuery && seg.toLowerCase().includes(searchQuery.toLowerCase())) {
+        const parts = seg.split(new RegExp(`(${searchQuery})`, 'gi'))
+        return <span key={i}>{parts.map((part, j) => part.toLowerCase() === searchQuery.toLowerCase() ? <mark key={j} style={{ background: '#f59e0b', color: '#000', borderRadius: '3px', padding: '0 2px' }}>{part}</mark> : part)}</span>
+      }
+      return seg
+    })
   }
 
   const isLeader = group?.leader_id === currentUser?.id
@@ -726,6 +794,7 @@ export default function GroupChat({ theme }) {
               const isHovered = hoveredMsg === msg.id
               const isPinned = pinnedMessage?.message_id === msg.id
               const isHighlighted = highlightedMsgId === msg.id
+              const isEditing = editingMsgId === msg.id
               return (
                 <div key={msg.id} ref={el => { if (el) msgRefs.current[msg.id] = el }} style={{ display: 'flex', gap: '0.75rem', alignItems: 'flex-start', flexDirection: isMine ? 'row-reverse' : 'row', background: isHighlighted ? 'rgba(245,158,11,0.1)' : 'transparent', borderRadius: '12px', padding: isHighlighted ? '0.25rem' : '0', transition: 'background 0.3s' }}
                   onMouseEnter={() => setHoveredMsg(msg.id)} onMouseLeave={() => setHoveredMsg(null)}>
@@ -738,10 +807,25 @@ export default function GroupChat({ theme }) {
                       </div>
                     )}
                     <div style={{ display: 'flex', flexDirection: isMine ? 'row-reverse' : 'row', alignItems: 'center', gap: '0.4rem' }}>
-                      <div style={{ background: isMine ? 'linear-gradient(135deg, #6c63ff, #a78bfa)' : bubbleOther, color: isMine ? 'white' : textColor, padding: '0.65rem 1rem', borderRadius: isMine ? '18px 18px 4px 18px' : '18px 18px 18px 4px', fontSize: '0.95rem', lineHeight: 1.4, outline: isPinned ? '2px solid rgba(108,99,255,0.4)' : isHighlighted ? '2px solid #f59e0b' : 'none' }}>
-                        {msg.content}
-                      </div>
-                      {isHovered && (
+                      {isEditing ? (
+                        <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center' }}>
+                          <input
+                            type="text"
+                            value={editContent}
+                            onChange={e => setEditContent(e.target.value)}
+                            onKeyDown={e => { if (e.key === 'Enter') saveEdit(msg.id); if (e.key === 'Escape') cancelEdit() }}
+                            autoFocus
+                            style={{ padding: '0.5rem 0.8rem', borderRadius: '14px', border: `1px solid ${inputBorder}`, background: inputBg, color: textColor, fontFamily: 'Inter, sans-serif', fontSize: '0.9rem', outline: 'none', minWidth: '180px' }}
+                          />
+                          <button onClick={() => saveEdit(msg.id)} style={{ background: 'rgba(16,185,129,0.15)', border: '1px solid rgba(16,185,129,0.3)', color: '#10b981', borderRadius: '6px', padding: '0.3rem 0.5rem', cursor: 'pointer', fontSize: '0.8rem' }}>✓</button>
+                          <button onClick={cancelEdit} style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.2)', color: '#ef4444', borderRadius: '6px', padding: '0.3rem 0.5rem', cursor: 'pointer', fontSize: '0.8rem' }}>✕</button>
+                        </div>
+                      ) : (
+                        <div style={{ background: isMine ? 'linear-gradient(135deg, #6c63ff, #a78bfa)' : bubbleOther, color: isMine ? 'white' : textColor, padding: '0.65rem 1rem', borderRadius: isMine ? '18px 18px 4px 18px' : '18px 18px 18px 4px', fontSize: '0.95rem', lineHeight: 1.4, outline: isPinned ? '2px solid rgba(108,99,255,0.4)' : isHighlighted ? '2px solid #f59e0b' : 'none' }}>
+                          {renderGroupMessage(msg.content)}
+                        </div>
+                      )}
+                      {isHovered && !isEditing && (
                         <div style={{ display: 'flex', gap: '0.25rem', alignItems: 'center' }}>
                           {canPin && <button onClick={() => pinMessage(msg)} title="Pin" style={{ background: actionBtn, border: `1px solid ${actionBord}`, color: isPinned ? '#a78bfa' : textColor, borderRadius: '6px', padding: '0.25rem 0.4rem', cursor: 'pointer', fontSize: '0.8rem' }}>📌</button>}
                           {!isMine && <button onClick={() => setReportMsgId(msg.id)} title="Report" style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.2)', color: '#ef4444', borderRadius: '6px', padding: '0.25rem 0.4rem', cursor: 'pointer', fontSize: '0.8rem' }}>🚨</button>}
@@ -755,9 +839,13 @@ export default function GroupChat({ theme }) {
                               </div>
                             )}
                           </div>
+                          {isMine && <button onClick={() => startEdit(msg)} title="Edit" style={{ background: actionBtn, border: `1px solid ${actionBord}`, color: textColor, borderRadius: '6px', padding: '0.25rem 0.4rem', cursor: 'pointer', fontSize: '0.8rem' }}>✏️</button>}
                         </div>
                       )}
                     </div>
+                    {msg.edited_at && !isEditing && (
+                      <span style={{ fontSize: '0.65rem', color: mutedColor, marginTop: '0.15rem' }}>(edited)</span>
+                    )}
                     {hasReactions && (
                       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.25rem', marginTop: '0.3rem' }}>
                         {Object.entries(groupedRxns).map(([emoji, userIds]) => (
@@ -774,12 +862,19 @@ export default function GroupChat({ theme }) {
             <div ref={bottomRef} />
           </div>
 
-          <div style={{ display: 'flex', gap: '0.75rem' }}>
+          <div style={{ display: 'flex', gap: '0.75rem', position: 'relative' }}>
+            {showMentions && filteredMentions.length > 0 && (
+              <div style={{ position: 'absolute', bottom: '100%', left: 0, marginBottom: '0.5rem', background: isLight ? '#f0f0f7' : '#1e1e2e', border: `1px solid ${border}`, borderRadius: '10px', padding: '0.4rem', boxShadow: '0 4px 20px rgba(0,0,0,0.4)', zIndex: 60, minWidth: '160px' }}>
+                {filteredMentions.map(u => (
+                  <button key={u} onClick={() => insertMention(u)} style={{ display: 'block', width: '100%', textAlign: 'left', background: 'transparent', border: 'none', color: textColor, padding: '0.4rem 0.75rem', cursor: 'pointer', fontFamily: 'Inter, sans-serif', fontSize: '0.85rem', borderRadius: '6px' }}>@{u}</button>
+                ))}
+              </div>
+            )}
             {canAnnounce && <button onClick={() => setShowAnnouncementInput(!showAnnouncementInput)} style={{ padding: '0.85rem', background: showAnnouncementInput ? 'rgba(245,158,11,0.2)' : inputBg, color: showAnnouncementInput ? '#f59e0b' : '#a78bfa', border: showAnnouncementInput ? '1px solid rgba(245,158,11,0.3)' : `1px solid ${inputBorder}`, borderRadius: '10px', cursor: 'pointer', fontSize: '1.1rem', lineHeight: 1 }}>📢</button>}
             {canManageMembers && <button onClick={() => setShowEventForm(!showEventForm)} style={{ padding: '0.85rem', background: showEventForm ? 'rgba(16,185,129,0.2)' : inputBg, color: showEventForm ? '#10b981' : '#a78bfa', border: showEventForm ? '1px solid rgba(16,185,129,0.3)' : `1px solid ${inputBorder}`, borderRadius: '10px', cursor: 'pointer', fontSize: '1.1rem', lineHeight: 1 }}>📅</button>}
             {canPoll && <button onClick={() => setShowPollForm(!showPollForm)} style={{ padding: '0.85rem', background: showPollForm ? 'rgba(108,99,255,0.2)' : inputBg, color: '#a78bfa', border: showPollForm ? '1px solid rgba(108,99,255,0.4)' : `1px solid ${inputBorder}`, borderRadius: '10px', cursor: 'pointer', fontSize: '1.1rem', lineHeight: 1 }}>📊</button>}
             <button onClick={() => setVoiceOpen(!voiceOpen)} style={{ padding: '0.85rem', background: voiceOpen ? 'rgba(16,185,129,0.15)' : inputBg, color: voiceOpen ? '#10b981' : '#a78bfa', border: voiceOpen ? '1px solid rgba(16,185,129,0.3)' : `1px solid ${inputBorder}`, borderRadius: '10px', cursor: 'pointer', fontSize: '1.2rem', lineHeight: 1 }}>🎙️</button>
-            <input type="text" placeholder="Message the group..." value={newMessage} onChange={e => setNewMessage(e.target.value)} onKeyDown={e => e.key === 'Enter' && sendMessage()} style={{ flex: 1, padding: '0.85rem 1rem', borderRadius: '10px', border: `1px solid ${inputBorder}`, background: inputBg, color: textColor, fontFamily: 'Inter, sans-serif', fontSize: '0.95rem', outline: 'none' }} />
+            <input type="text" placeholder="Message the group..." value={newMessage} onChange={handleMessageInput} onKeyDown={e => e.key === 'Enter' && sendMessage()} style={{ flex: 1, padding: '0.85rem 1rem', borderRadius: '10px', border: `1px solid ${inputBorder}`, background: inputBg, color: textColor, fontFamily: 'Inter, sans-serif', fontSize: '0.95rem', outline: 'none' }} />
             <button onClick={sendMessage} style={{ padding: '0.85rem 1.5rem', background: 'linear-gradient(135deg, #6c63ff, #a78bfa)', color: 'white', border: 'none', borderRadius: '10px', cursor: 'pointer', fontFamily: 'Inter, sans-serif', fontWeight: '600' }}>Send</button>
           </div>
         </div>

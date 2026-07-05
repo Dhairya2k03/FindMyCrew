@@ -34,6 +34,10 @@ export default function Chat({ theme }) {
   const [searchQuery, setSearchQuery] = useState('')
   const [searchResults, setSearchResults] = useState([])
   const [highlightedMsgId, setHighlightedMsgId] = useState(null)
+  const [editingMsgId, setEditingMsgId] = useState(null)
+  const [editContent, setEditContent] = useState('')
+  const [showMentions, setShowMentions] = useState(false)
+  const [mentionQuery, setMentionQuery] = useState('')
   const bottomRef = useRef(null)
   const fileInputRef = useRef(null)
   const inputRef = useRef(null)
@@ -183,8 +187,20 @@ export default function Chat({ theme }) {
     setTimeout(() => setHighlightedMsgId(null), 2000)
   }
 
+  const mentionCandidates = [otherUser?.username || otherUser?.email?.split('@')[0]].filter(Boolean)
+
   const handleTyping = (e) => {
-    setNewMessage(e.target.value)
+    const val = e.target.value
+    setNewMessage(val)
+    const cursorPos = e.target.selectionStart
+    const textBeforeCursor = val.slice(0, cursorPos)
+    const match = textBeforeCursor.match(/@(\w*)$/)
+    if (match) {
+      setMentionQuery(match[1])
+      setShowMentions(true)
+    } else {
+      setShowMentions(false)
+    }
     if (!broadcastChannelRef.current || !currentUser) return
     broadcastChannelRef.current.send({ type: 'broadcast', event: 'typing', payload: { typing: true, userId: currentUser.id } })
     clearTimeout(typingTimeoutRef.current)
@@ -193,11 +209,20 @@ export default function Chat({ theme }) {
     }, 1500)
   }
 
+  const insertMention = (username) => {
+    setNewMessage(prev => prev.replace(/@(\w*)$/, `@${username} `))
+    setShowMentions(false)
+    inputRef.current?.focus()
+  }
+
+  const filteredMentions = mentionCandidates.filter(u => u.toLowerCase().includes(mentionQuery.toLowerCase()))
+
   const sendMessage = async () => {
     if (!newMessage.trim()) return
     const content = newMessage.trim()
     setNewMessage('')
     setReplyTo(null)
+    setShowMentions(false)
     clearTimeout(typingTimeoutRef.current)
     broadcastChannelRef.current?.send({ type: 'broadcast', event: 'typing', payload: { typing: false, userId: currentUser.id } })
     const tempMsg = { id: `temp-${Date.now()}`, sender_id: currentUser.id, receiver_id: userId, content, created_at: new Date(), read_at: null, reply_to: replyTo?.id || null, reply_content: replyTo?.content || null }
@@ -210,6 +235,26 @@ export default function Chat({ theme }) {
   const deleteMessage = async (msgId) => {
     setMessages(prev => prev.filter(m => m.id !== msgId))
     await supabase.from('messages').delete().eq('id', msgId)
+  }
+
+  const startEdit = (msg) => {
+    setEditingMsgId(msg.id)
+    setEditContent(msg.content)
+    setEmojiPickerMsg(null)
+  }
+
+  const cancelEdit = () => {
+    setEditingMsgId(null)
+    setEditContent('')
+  }
+
+  const saveEdit = async (msgId) => {
+    const trimmed = editContent.trim()
+    if (!trimmed) return
+    setMessages(prev => prev.map(m => m.id === msgId ? { ...m, content: trimmed, edited_at: new Date().toISOString() } : m))
+    setEditingMsgId(null)
+    setEditContent('')
+    await supabase.from('messages').update({ content: trimmed, edited_at: new Date().toISOString() }).eq('id', msgId)
   }
 
   const toggleReaction = async (msgId, emoji) => {
@@ -253,16 +298,33 @@ export default function Chat({ theme }) {
     fileInputRef.current.value = ''
   }
 
+  const renderTextWithMentionsAndSearch = (text) => {
+    const usernames = [otherUser?.username || otherUser?.email?.split('@')[0], currentUser?.user_metadata?.username || currentUser?.email?.split('@')[0]].filter(Boolean)
+    let segments = [text]
+    if (usernames.length) {
+      const escaped = usernames.map(u => u.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+      const mentionRegex = new RegExp(`(@(?:${escaped.join('|')}))(?!\\w)`, 'g')
+      segments = text.split(mentionRegex)
+    }
+    return segments.map((seg, i) => {
+      const isMention = usernames.some(u => seg === `@${u}`)
+      if (isMention) {
+        return <span key={i} style={{ color: '#a78bfa', fontWeight: 600 }}>{seg}</span>
+      }
+      if (searchQuery && seg.toLowerCase().includes(searchQuery.toLowerCase())) {
+        const parts = seg.split(new RegExp(`(${searchQuery})`, 'gi'))
+        return <span key={i}>{parts.map((part, j) => part.toLowerCase() === searchQuery.toLowerCase() ? <mark key={j} style={{ background: '#f59e0b', color: '#000', borderRadius: '3px', padding: '0 2px' }}>{part}</mark> : part)}</span>
+      }
+      return seg
+    })
+  }
+
   const renderMessage = (msg) => {
     if (msg.content?.startsWith('[image]')) {
       const url = msg.content.replace('[image]', '')
       return <img src={url} alt="sent image" style={{ maxWidth: '250px', maxHeight: '250px', borderRadius: '12px', display: 'block', cursor: 'pointer' }} onClick={() => window.open(url, '_blank')} />
     }
-    if (searchQuery && msg.content?.toLowerCase().includes(searchQuery.toLowerCase())) {
-      const parts = msg.content.split(new RegExp(`(${searchQuery})`, 'gi'))
-      return <span>{parts.map((part, i) => part.toLowerCase() === searchQuery.toLowerCase() ? <mark key={i} style={{ background: '#f59e0b', color: '#000', borderRadius: '3px', padding: '0 2px' }}>{part}</mark> : part)}</span>
-    }
-    return msg.content
+    return <span>{renderTextWithMentionsAndSearch(msg.content)}</span>
   }
 
   const truncate = (text, n = 40) => text?.startsWith('[image]') ? '📷 Image' : text?.length > n ? text.substring(0, n) + '...' : text
@@ -364,6 +426,8 @@ export default function Chat({ theme }) {
           const hasReactions = Object.keys(groupedRxns).length > 0
           const isRead = isMine && msg.read_at && !isTemp
           const isHighlighted = highlightedMsgId === msg.id
+          const isEditing = editingMsgId === msg.id
+          const isImage = msg.content?.startsWith('[image]')
           return (
             <div
               key={msg.id}
@@ -378,11 +442,29 @@ export default function Chat({ theme }) {
                       ↩ {truncate(msg.reply_content)}
                     </div>
                   )}
-                  <div style={{ background: msg.content?.startsWith('[image]') ? 'transparent' : isMine ? 'linear-gradient(135deg, #6c63ff, #a78bfa)' : bubbleOther, color: isMine ? 'white' : textColor, padding: msg.content?.startsWith('[image]') ? '0' : '0.65rem 1rem', borderRadius: isMine ? '18px 18px 4px 18px' : '18px 18px 18px 4px', fontSize: '0.95rem', lineHeight: 1.4, opacity: isTemp ? 0.7 : 1, outline: isHighlighted ? '2px solid #f59e0b' : 'none' }}>
-                    {renderMessage(msg)}
-                  </div>
+                  {isEditing ? (
+                    <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center' }}>
+                      <input
+                        type="text"
+                        value={editContent}
+                        onChange={e => setEditContent(e.target.value)}
+                        onKeyDown={e => { if (e.key === 'Enter') saveEdit(msg.id); if (e.key === 'Escape') cancelEdit() }}
+                        autoFocus
+                        style={{ padding: '0.5rem 0.8rem', borderRadius: '14px', border: `1px solid ${inputBorder}`, background: inputBg, color: textColor, fontFamily: 'Inter, sans-serif', fontSize: '0.9rem', outline: 'none', minWidth: '180px' }}
+                      />
+                      <button onClick={() => saveEdit(msg.id)} style={{ background: 'rgba(16,185,129,0.15)', border: '1px solid rgba(16,185,129,0.3)', color: '#10b981', borderRadius: '6px', padding: '0.3rem 0.5rem', cursor: 'pointer', fontSize: '0.8rem' }}>✓</button>
+                      <button onClick={cancelEdit} style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.2)', color: '#ef4444', borderRadius: '6px', padding: '0.3rem 0.5rem', cursor: 'pointer', fontSize: '0.8rem' }}>✕</button>
+                    </div>
+                  ) : (
+                    <div style={{ background: isImage ? 'transparent' : isMine ? 'linear-gradient(135deg, #6c63ff, #a78bfa)' : bubbleOther, color: isMine ? 'white' : textColor, padding: isImage ? '0' : '0.65rem 1rem', borderRadius: isMine ? '18px 18px 4px 18px' : '18px 18px 18px 4px', fontSize: '0.95rem', lineHeight: 1.4, opacity: isTemp ? 0.7 : 1, outline: isHighlighted ? '2px solid #f59e0b' : 'none' }}>
+                      {renderMessage(msg)}
+                    </div>
+                  )}
+                  {msg.edited_at && !isTemp && !isEditing && (
+                    <span style={{ fontSize: '0.65rem', color: mutedColor, marginTop: '0.15rem', alignSelf: isMine ? 'flex-end' : 'flex-start' }}>(edited)</span>
+                  )}
                 </div>
-                {!isTemp && isHovered && (
+                {!isTemp && isHovered && !isEditing && (
                   <div style={{ display: 'flex', gap: '0.25rem', alignItems: 'center' }}>
                     <button onClick={() => { setReplyTo(msg); inputRef.current?.focus() }} style={{ background: 'rgba(255,255,255,0.08)', border: `1px solid rgba(255,255,255,0.12)`, color: textColor, borderRadius: '6px', padding: '0.25rem 0.4rem', cursor: 'pointer', fontSize: '0.8rem' }}>↩</button>
                     <div style={{ position: 'relative' }}>
@@ -395,6 +477,7 @@ export default function Chat({ theme }) {
                         </div>
                       )}
                     </div>
+                    {isMine && !isImage && <button onClick={() => startEdit(msg)} title="Edit" style={{ background: 'rgba(255,255,255,0.08)', border: `1px solid rgba(255,255,255,0.12)`, color: textColor, borderRadius: '6px', padding: '0.25rem 0.4rem', cursor: 'pointer', fontSize: '0.8rem' }}>✏️</button>}
                     {isMine && <button onClick={() => deleteMessage(msg.id)} style={{ background: 'rgba(239,68,68,0.15)', border: '1px solid rgba(239,68,68,0.2)', color: '#ef4444', borderRadius: '6px', padding: '0.25rem 0.5rem', cursor: 'pointer', fontSize: '0.75rem' }}>🗑️</button>}
                   </div>
                 )}
@@ -433,7 +516,14 @@ export default function Chat({ theme }) {
         </div>
       )}
 
-      <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
+      <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', position: 'relative' }}>
+        {showMentions && filteredMentions.length > 0 && (
+          <div style={{ position: 'absolute', bottom: '100%', left: 0, marginBottom: '0.5rem', background: isLight ? '#f0f0f7' : '#1e1e2e', border: `1px solid ${border}`, borderRadius: '10px', padding: '0.4rem', boxShadow: '0 4px 20px rgba(0,0,0,0.4)', zIndex: 60, minWidth: '160px' }}>
+            {filteredMentions.map(u => (
+              <button key={u} onClick={() => insertMention(u)} style={{ display: 'block', width: '100%', textAlign: 'left', background: 'transparent', border: 'none', color: textColor, padding: '0.4rem 0.75rem', cursor: 'pointer', fontFamily: 'Inter, sans-serif', fontSize: '0.85rem', borderRadius: '6px' }}>@{u}</button>
+            ))}
+          </div>
+        )}
         <input type="file" accept="image/*" ref={fileInputRef} onChange={sendImage} style={{ display: 'none' }} />
         <button onClick={() => fileInputRef.current.click()} disabled={uploading} style={{ padding: '0.85rem', background: inputBg, color: uploading ? mutedColor : '#a78bfa', border: `1px solid ${inputBorder}`, borderRadius: '10px', cursor: uploading ? 'default' : 'pointer', fontSize: '1.2rem', lineHeight: 1 }}>
           {uploading ? '⏳' : '📷'}
