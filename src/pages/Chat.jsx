@@ -14,6 +14,11 @@ const formatLastSeen = (date) => {
   return `Last seen ${d.toLocaleDateString()}`
 }
 
+const formatTimestamp = (timestamp) => {
+  const date = new Date(timestamp)
+  return date.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true })
+}
+
 const EMOJI_OPTIONS = ['❤️', '😂', '😮', '😢', '👍', '🔥']
 
 export default function Chat({ theme }) {
@@ -464,6 +469,11 @@ export default function Chat({ theme }) {
                     <span style={{ fontSize: '0.65rem', color: mutedColor, marginTop: '0.15rem', alignSelf: isMine ? 'flex-end' : 'flex-start' }}>(edited)</span>
                   )}
                 </div>
+                {isHovered && !isEditing && !isTemp && (
+                  <span style={{ fontSize: '0.7rem', color: mutedColor, whiteSpace: 'nowrap', flexShrink: 0 }}>
+                    {formatTimestamp(msg.created_at)}
+                  </span>
+                )}
                 {!isTemp && isHovered && !isEditing && (
                   <div style={{ display: 'flex', gap: '0.25rem', alignItems: 'center' }}>
                     <button onClick={() => { setReplyTo(msg); inputRef.current?.focus() }} style={{ background: 'rgba(255,255,255,0.08)', border: `1px solid rgba(255,255,255,0.12)`, color: textColor, borderRadius: '6px', padding: '0.25rem 0.4rem', cursor: 'pointer', fontSize: '0.8rem' }}>↩</button>
