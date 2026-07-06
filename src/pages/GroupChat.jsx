@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { useParams } from 'react-router-dom'
+import { useParams, useNavigate } from 'react-router-dom'
 import VoiceChat from '../components/VoiceChat'
 import { supabase } from '../lib/supabaseClient'
 
@@ -666,7 +666,7 @@ export default function GroupChat({ theme }) {
                         const isMine = msg.sender_id === currentUser?.id
                         return (
                           <button key={msg.id} onClick={() => jumpToMessage(msg.id)} style={{ background: inputBg, border: `1px solid ${border}`, borderRadius: '8px', padding: '0.5rem 0.75rem', cursor: 'pointer', textAlign: 'left', display: 'flex', flexDirection: 'column', gap: '0.2rem', fontFamily: 'Inter, sans-serif' }}>
-                            <span style={{ fontSize: '0.7rem', color: mutedColor }}>{isMine ? 'You' : getName(msg.sender_id)} · {new Date(msg.created_at).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
+                            <span style={{ fontSize: '0.7rem', color: mutedColor }}>{isMine ? 'You' : getName(msg.sender_id)} · {formatTimestamp(msg.created_at)}</span>
                             <span style={{ fontSize: '0.85rem', color: textColor }}>
                               {msg.content.split(new RegExp(`(${searchQuery})`, 'gi')).map((part, i) =>
                                 part.toLowerCase() === searchQuery.toLowerCase()
@@ -852,8 +852,10 @@ export default function GroupChat({ theme }) {
                         </div>
                       )}
                     </div>
-                    {msg.edited_at && !isEditing && (
-                      <span style={{ fontSize: '0.65rem', color: mutedColor, marginTop: '0.15rem' }}>(edited)</span>
+                    {!isEditing && (
+                      <span style={{ fontSize: '0.65rem', color: mutedColor, marginTop: '0.15rem' }}>
+                        {formatTimestamp(msg.created_at)}{msg.edited_at ? ' · (edited)' : ''}
+                      </span>
                     )}
                     {hasReactions && (
                       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.25rem', marginTop: '0.3rem' }}>
