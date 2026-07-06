@@ -1,13 +1,22 @@
 import { useState, useEffect, useRef } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
-import { supabase } from '../lib/supabaseClient'
+import { useParams } from 'react-router-dom'
 import VoiceChat from '../components/VoiceChat'
+import { supabase } from '../lib/supabaseClient'
 
-const ROLE_CONFIG = {
-  leader: { label: '👑 Leader', color: '#f59e0b' },
-  admin:  { label: '🛡️ Admin',  color: '#6c63ff' },
-  elder:  { label: '⚔️ Elder',  color: '#10b981' },
-  member: { label: 'Member',    color: '#888'    },
+const formatLastSeen = (date) => {
+  if (!date) return 'Offline'
+  const d = new Date(date)
+  const diff = new Date() - d
+  if (diff < 60000) return 'Last seen just now'
+  if (diff < 3600000) return `Last seen ${Math.floor(diff / 60000)}m ago`
+  if (diff < 86400000) return `Last seen ${Math.floor(diff / 3600000)}h ago`
+  if (diff < 604800000) return `Last seen ${Math.floor(diff / 86400000)}d ago`
+  return `Last seen ${d.toLocaleDateString()}`
+}
+
+const formatTimestamp = (timestamp) => {
+  const date = new Date(timestamp)
+  return date.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true })
 }
 
 const EMOJI_OPTIONS = ['❤️', '😂', '😮', '😢', '👍', '🔥']
