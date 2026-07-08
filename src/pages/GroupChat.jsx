@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { useParams } from 'react-router-dom'
+import { useParams, useNavigate } from 'react-router-dom'
 import VoiceChat from '../components/VoiceChat'
 import { supabase } from '../lib/supabaseClient'
 
@@ -20,6 +20,30 @@ const formatTimestamp = (timestamp) => {
 }
 
 const EMOJI_OPTIONS = ['❤️', '😂', '😮', '😢', '👍', '🔥']
+
+const TypingDots = ({ color = '#a78bfa' }) => (
+  <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+    {[0, 1, 2].map((i) => (
+      <span
+        key={i}
+        style={{
+          width: '7px',
+          height: '7px',
+          borderRadius: '50%',
+          background: color,
+          animation: 'typingBounce 1.4s infinite ease-in-out',
+          animationDelay: `${i * 0.2}s`,
+        }}
+      />
+    ))}
+    <style>{`
+      @keyframes typingBounce {
+        0%, 60%, 100% { transform: translateY(0); opacity: 0.6; }
+        30% { transform: translateY(-5px); opacity: 1; }
+      }
+    `}</style>
+  </div>
+)
 
 export default function GroupChat({ theme }) {
   const { groupId } = useParams()
@@ -62,9 +86,12 @@ export default function GroupChat({ theme }) {
   const [editContent, setEditContent] = useState('')
   const [showMentions, setShowMentions] = useState(false)
   const [mentionQuery, setMentionQuery] = useState('')
+  const [typingUsers, setTypingUsers] = useState([])
   const bottomRef = useRef(null)
   const searchInputRef = useRef(null)
   const msgRefs = useRef({})
+  const typingChannelRef = useRef(null)
+  const typingTimeoutRef = useRef(null)
 
   const isLight = theme === 'light'
   const bg          = isLight ? '#f0f0f7'                : '#0f0f1a'
@@ -185,9 +212,17 @@ export default function GroupChat({ theme }) {
         const v = payload.new
         setPollVotes(prev => ({ ...prev, [v.poll_id]: (prev[v.poll_id] || []).map(x => x.id === v.id ? v : x) }))
       })
+      .on('broadcast', { event: 'typing' }, ({ payload }) => {
+        if (!currentUser || payload.userId === currentUser.id) return
+        setTypingUsers(prev => prev.includes(payload.username) ? prev : [...prev, payload.username])
+      })
+      .on('broadcast', { event: 'stop_typing' }, ({ payload }) => {
+        setTypingUsers(prev => prev.filter(u => u !== payload.username))
+      })
       .subscribe()
+    typingChannelRef.current = channel
     return () => supabase.removeChannel(channel)
-  }, [groupId])
+  }, [groupId, currentUser])
 
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages, polls])
 
@@ -207,11 +242,23 @@ export default function GroupChat({ theme }) {
     }
   }, [searchOpen])
 
+  const broadcastStopTyping = () => {
+    if (typingChannelRef.current && currentUser) {
+      typingChannelRef.current.send({
+        type: 'broadcast',
+        event: 'stop_typing',
+        payload: { userId: currentUser.id, username: getName(currentUser.id) }
+      })
+    }
+    clearTimeout(typingTimeoutRef.current)
+  }
+
   const sendMessage = async () => {
     if (!newMessage.trim()) return
     const content = newMessage.trim()
     setNewMessage('')
     setShowMentions(false)
+    broadcastStopTyping()
     const tempMsg = { id: `temp-${Date.now()}`, group_id: groupId, sender_id: currentUser.id, content, created_at: new Date() }
     setMessages(prev => [...prev, tempMsg])
     const { data } = await supabase.from('group_messages').insert({ group_id: groupId, sender_id: currentUser.id, content }).select().single()
@@ -410,6 +457,18 @@ export default function GroupChat({ theme }) {
       setShowMentions(true)
     } else {
       setShowMentions(false)
+    }
+
+    if (typingChannelRef.current && currentUser) {
+      typingChannelRef.current.send({
+        type: 'broadcast',
+        event: 'typing',
+        payload: { userId: currentUser.id, username: getName(currentUser.id) }
+      })
+      clearTimeout(typingTimeoutRef.current)
+      typingTimeoutRef.current = setTimeout(() => {
+        broadcastStopTyping()
+      }, 2000)
     }
   }
 
@@ -868,6 +927,17 @@ export default function GroupChat({ theme }) {
                 </div>
               )
             })}
+            {typingUsers.length > 0 && (
+              <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
+                <div style={{ width: '32px' }} />
+                <div style={{ background: bubbleOther, borderRadius: '18px 18px 18px 4px', padding: '0.6rem 0.9rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <span style={{ fontSize: '0.75rem', color: mutedColor }}>
+                    {typingUsers.length === 1 ? `${typingUsers[0]} is typing` : `${typingUsers.length} people are typing`}
+                  </span>
+                  <TypingDots color="#a78bfa" />
+                </div>
+              </div>
+            )}
             <div ref={bottomRef} />
           </div>
 
