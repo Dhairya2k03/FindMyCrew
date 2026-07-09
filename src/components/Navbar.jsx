@@ -50,6 +50,7 @@ export default function Navbar({ theme, setTheme, user }) {
     { path: '/connections', label: 'Connections' },
     { path: '/notifications', label: '🔔', badge: unreadNotifs },
     { path: '/profile', label: 'Profile' },
+    { path: '/feed', label: '📰 Feed' },
   ]
 
   const navItems = isAdmin
