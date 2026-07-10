@@ -1,6 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import VoiceChat from '../components/VoiceChat'
 import { supabase } from '../lib/supabaseClient'
 
 const ROLE_CONFIG = {
@@ -26,7 +25,6 @@ export default function GroupChat({ theme }) {
   const [profiles, setProfiles] = useState({})
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [roleMenuOpen, setRoleMenuOpen] = useState(null)
-  const [voiceOpen, setVoiceOpen] = useState(false)
   const [announcements, setAnnouncements] = useState([])
   const [newAnnouncement, setNewAnnouncement] = useState('')
   const [showAnnouncementInput, setShowAnnouncementInput] = useState(false)
@@ -889,7 +887,6 @@ export default function GroupChat({ theme }) {
             {canAnnounce && <button onClick={() => setShowAnnouncementInput(!showAnnouncementInput)} style={{ padding: '0.85rem', background: showAnnouncementInput ? 'rgba(245,158,11,0.2)' : inputBg, color: showAnnouncementInput ? '#f59e0b' : '#a78bfa', border: showAnnouncementInput ? '1px solid rgba(245,158,11,0.3)' : `1px solid ${inputBorder}`, borderRadius: '10px', cursor: 'pointer', fontSize: '1.1rem', lineHeight: 1 }}>📢</button>}
             {canManageMembers && <button onClick={() => setShowEventForm(!showEventForm)} style={{ padding: '0.85rem', background: showEventForm ? 'rgba(16,185,129,0.2)' : inputBg, color: showEventForm ? '#10b981' : '#a78bfa', border: showEventForm ? '1px solid rgba(16,185,129,0.3)' : `1px solid ${inputBorder}`, borderRadius: '10px', cursor: 'pointer', fontSize: '1.1rem', lineHeight: 1 }}>📅</button>}
             {canPoll && <button onClick={() => setShowPollForm(!showPollForm)} style={{ padding: '0.85rem', background: showPollForm ? 'rgba(108,99,255,0.2)' : inputBg, color: '#a78bfa', border: showPollForm ? '1px solid rgba(108,99,255,0.4)' : `1px solid ${inputBorder}`, borderRadius: '10px', cursor: 'pointer', fontSize: '1.1rem', lineHeight: 1 }}>📊</button>}
-            <button onClick={() => setVoiceOpen(!voiceOpen)} style={{ padding: '0.85rem', background: voiceOpen ? 'rgba(16,185,129,0.15)' : inputBg, color: voiceOpen ? '#10b981' : '#a78bfa', border: voiceOpen ? '1px solid rgba(16,185,129,0.3)' : `1px solid ${inputBorder}`, borderRadius: '10px', cursor: 'pointer', fontSize: '1.2rem', lineHeight: 1 }}>🎙️</button>
             <input type="text" placeholder="Message the group..." value={newMessage} onChange={handleMessageInput} onKeyDown={e => e.key === 'Enter' && sendMessage()} style={{ flex: 1, padding: '0.85rem 1rem', borderRadius: '10px', border: `1px solid ${inputBorder}`, background: inputBg, color: textColor, fontFamily: 'Inter, sans-serif', fontSize: '0.95rem', outline: 'none' }} />
             <button onClick={sendMessage} style={{ padding: '0.85rem 1.5rem', background: 'linear-gradient(135deg, #6c63ff, #a78bfa)', color: 'white', border: 'none', borderRadius: '10px', cursor: 'pointer', fontFamily: 'Inter, sans-serif', fontWeight: '600' }}>Send</button>
           </div>
@@ -905,8 +902,6 @@ export default function GroupChat({ theme }) {
           </div>
         </div>
       )}
-
-      {voiceOpen && <VoiceChat roomName={`group-${groupId}`} onClose={() => setVoiceOpen(false)} />}
 
       <style>{`
         @media (max-width: 768px) {
