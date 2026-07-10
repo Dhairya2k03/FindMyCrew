@@ -51,7 +51,7 @@ export default function Navbar({ theme, setTheme, user }) {
     { path: '/notifications', label: '🔔', badge: unreadNotifs },
     { path: '/profile', label: 'Profile' },
     { path: '/feed', label: '📰 Feed' },
-    {path: '/LFG', label: '🎯 LFG' },
+    { path: '/LFG', label: '🎯 LFG' },
   ]
 
   const navItems = isAdmin
