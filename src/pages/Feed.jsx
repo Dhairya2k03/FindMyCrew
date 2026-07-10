@@ -29,12 +29,14 @@ export default function Feed({ theme }) {
   const [mediaPreview, setMediaPreview] = useState(null)
   const [uploading, setUploading] = useState(false)
   const [filterType, setFilterType] = useState('all')
-  const [feedTab, setFeedTab] = useState('all') // 'all' or 'following'
+  const [feedTab, setFeedTab] = useState('all')
   const [followingIds, setFollowingIds] = useState([])
   const [openComments, setOpenComments] = useState(null)
   const [newComment, setNewComment] = useState('')
   const [followingMap, setFollowingMap] = useState({})
+  const [showcasedPostIds, setShowcasedPostIds] = useState([])
   const mediaInputRef = useRef(null)
+  const currentUserRef = useRef(null)
   const navigate = useNavigate()
 
   const isLight = theme === 'light'
@@ -50,35 +52,54 @@ export default function Feed({ theme }) {
     const load = async () => {
       const { data: { user } } = await supabase.auth.getUser()
       setCurrentUser(user)
+      currentUserRef.current = user
 
-      // Load who current user follows
       const { data: followsData } = await supabase.from('follows').select('following_id').eq('follower_id', user.id)
       const ids = followsData?.map(f => f.following_id) || []
       setFollowingIds(ids)
-
-      // Load following status for post authors
       const fMap = {}
       ids.forEach(id => { fMap[id] = true })
       setFollowingMap(fMap)
 
-      await loadPosts(user, ids)
+      // Load showcased posts
+      const { data: profileData } = await supabase.from('profiles').select('showcase_posts').eq('id', user.id).single()
+      setShowcasedPostIds(profileData?.showcase_posts || [])
+
+      await loadPosts()
       setLoading(false)
     }
     load()
+  }, [])
 
+  // Separate realtime subscription that doesn't cause duplicates
+  useEffect(() => {
+    if (!currentUser) return
     const channel = supabase.channel('feed-realtime')
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'posts' }, async () => {
-        const { data: { user } } = await supabase.auth.getUser()
-        const { data: followsData } = await supabase.from('follows').select('following_id').eq('follower_id', user.id)
-        const ids = followsData?.map(f => f.following_id) || []
-        await loadPosts(user, ids)
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'posts' }, payload => {
+        const newPost = payload.new
+        setPosts(prev => {
+          if (prev.some(p => p.id === newPost.id)) return prev
+          return [newPost, ...prev]
+        })
+        // Load profile for new post author if needed
+        setProfiles(prev => {
+          if (prev[newPost.user_id]) return prev
+          supabase.from('profiles').select('*').eq('id', newPost.user_id).single().then(({ data }) => {
+            if (data) setProfiles(p => ({ ...p, [data.id]: data }))
+          })
+          return prev
+        })
       })
       .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'posts' }, payload => {
         setPosts(prev => prev.filter(p => p.id !== payload.old.id))
       })
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'post_likes' }, payload => {
         const l = payload.new
-        setLikes(prev => ({ ...prev, [l.post_id]: [...(prev[l.post_id] || []), l] }))
+        setLikes(prev => {
+          const existing = prev[l.post_id] || []
+          if (existing.some(x => x.id === l.id)) return prev
+          return { ...prev, [l.post_id]: [...existing, l] }
+        })
       })
       .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'post_likes' }, payload => {
         const l = payload.old
@@ -86,13 +107,17 @@ export default function Feed({ theme }) {
       })
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'post_comments' }, payload => {
         const c = payload.new
-        setComments(prev => ({ ...prev, [c.post_id]: [...(prev[c.post_id] || []), c] }))
+        setComments(prev => {
+          const existing = prev[c.post_id] || []
+          if (existing.some(x => x.id === c.id)) return prev
+          return { ...prev, [c.post_id]: [...existing, c] }
+        })
       })
       .subscribe()
     return () => supabase.removeChannel(channel)
-  }, [])
+  }, [currentUser])
 
-  const loadPosts = async (user, fIds) => {
+  const loadPosts = async () => {
     const { data: postsData } = await supabase.from('posts').select('*').order('created_at', { ascending: false }).limit(100)
     if (!postsData) return
     setPosts(postsData)
@@ -106,11 +131,13 @@ export default function Feed({ theme }) {
     }
 
     const postIds = postsData.map(p => p.id)
+
     const { data: likesData } = await supabase.from('post_likes').select('*').in('post_id', postIds)
     const likesMap = {}
     likesData?.forEach(l => {
       if (!likesMap[l.post_id]) likesMap[l.post_id] = []
-      likesMap[l.post_id].push(l)
+      // Deduplicate by id
+      if (!likesMap[l.post_id].some(x => x.id === l.id)) likesMap[l.post_id].push(l)
     })
     setLikes(likesMap)
 
@@ -118,7 +145,7 @@ export default function Feed({ theme }) {
     const commentsMap = {}
     commentsData?.forEach(c => {
       if (!commentsMap[c.post_id]) commentsMap[c.post_id] = []
-      commentsMap[c.post_id].push(c)
+      if (!commentsMap[c.post_id].some(x => x.id === c.id)) commentsMap[c.post_id].push(c)
     })
     setComments(commentsMap)
   }
@@ -134,6 +161,18 @@ export default function Feed({ theme }) {
       setFollowingMap(prev => ({ ...prev, [targetUserId]: true }))
       setFollowingIds(prev => [...prev, targetUserId])
     }
+  }
+
+  const toggleShowcase = async (postId) => {
+    let newShowcase
+    if (showcasedPostIds.includes(postId)) {
+      newShowcase = showcasedPostIds.filter(id => id !== postId)
+    } else {
+      if (showcasedPostIds.length >= 3) return alert('You can only showcase up to 3 posts. Remove one first.')
+      newShowcase = [...showcasedPostIds, postId]
+    }
+    setShowcasedPostIds(newShowcase)
+    await supabase.from('profiles').update({ showcase_posts: newShowcase }).eq('id', currentUser.id)
   }
 
   const handleMediaChange = (e) => {
@@ -159,33 +198,50 @@ export default function Feed({ theme }) {
       const { data: { publicUrl } } = supabase.storage.from(bucket).getPublicUrl(fileName)
       mediaUrl = publicUrl
     }
-    const { error } = await supabase.from('posts').insert({ user_id: currentUser.id, content: newPost.content.trim(), media_url: mediaUrl, media_type: mediaType, post_type: newPost.post_type, game: newPost.game.trim() || null, rank: newPost.rank.trim() || null })
+    const { error } = await supabase.from('posts').insert({
+      user_id: currentUser.id,
+      content: newPost.content.trim(),
+      media_url: mediaUrl,
+      media_type: mediaType,
+      post_type: newPost.post_type,
+      game: newPost.game.trim() || null,
+      rank: newPost.rank.trim() || null,
+    })
     if (error) { alert(error.message); setUploading(false); return }
     setNewPost({ content: '', post_type: 'general', game: '', rank: '' })
     setMediaFile(null)
     setMediaPreview(null)
     setShowCreate(false)
     setUploading(false)
-    await loadPosts(currentUser, followingIds)
   }
 
   const toggleLike = async (postId) => {
-    const existing = (likes[postId] || []).find(l => l.user_id === currentUser.id)
+    const user = currentUserRef.current
+    const existing = (likes[postId] || []).find(l => l.user_id === user.id)
     if (existing) {
+      // Optimistic remove
       setLikes(prev => ({ ...prev, [postId]: prev[postId].filter(l => l.id !== existing.id) }))
       await supabase.from('post_likes').delete().eq('id', existing.id)
     } else {
+      // Optimistic add with temp id
       const tempId = `temp-${Date.now()}`
-      setLikes(prev => ({ ...prev, [postId]: [...(prev[postId] || []), { id: tempId, post_id: postId, user_id: currentUser.id }] }))
-      const { data } = await supabase.from('post_likes').insert({ post_id: postId, user_id: currentUser.id }).select().single()
-      if (data) setLikes(prev => ({ ...prev, [postId]: prev[postId].map(l => l.id === tempId ? data : l) }))
+      setLikes(prev => ({ ...prev, [postId]: [...(prev[postId] || []), { id: tempId, post_id: postId, user_id: user.id }] }))
+      const { data } = await supabase.from('post_likes').insert({ post_id: postId, user_id: user.id }).select().single()
+      if (data) {
+        setLikes(prev => ({ ...prev, [postId]: prev[postId].map(l => l.id === tempId ? data : l) }))
+      }
     }
   }
 
   const submitComment = async (postId) => {
     if (!newComment.trim()) return
-    const { data } = await supabase.from('post_comments').insert({ post_id: postId, user_id: currentUser.id, content: newComment.trim() }).select().single()
-    if (data) { setComments(prev => ({ ...prev, [postId]: [...(prev[postId] || []), data] })); setNewComment('') }
+    const content = newComment.trim()
+    setNewComment('')
+    const tempId = `temp-${Date.now()}`
+    const tempComment = { id: tempId, post_id: postId, user_id: currentUser.id, content, created_at: new Date() }
+    setComments(prev => ({ ...prev, [postId]: [...(prev[postId] || []), tempComment] }))
+    const { data } = await supabase.from('post_comments').insert({ post_id: postId, user_id: currentUser.id, content }).select().single()
+    if (data) setComments(prev => ({ ...prev, [postId]: prev[postId].map(c => c.id === tempId ? data : c) }))
   }
 
   const deletePost = async (postId) => {
@@ -219,11 +275,117 @@ export default function Feed({ theme }) {
     .filter(p => feedTab === 'following' ? followingIds.includes(p.user_id) || p.user_id === currentUser?.id : true)
     .filter(p => filterType === 'all' ? true : p.post_type === filterType)
 
+  const showcasedPosts = posts.filter(p => showcasedPostIds.includes(p.id))
+
+  const PostCard = ({ post }) => {
+    const postLikes = likes[post.id] || []
+    const postComments = comments[post.id] || []
+    const isLiked = postLikes.some(l => l.user_id === currentUser?.id)
+    const isOwn = post.user_id === currentUser?.id
+    const typeColor = TYPE_COLORS[post.post_type] || '#6c63ff'
+    const typeLabel = POST_TYPES.find(t => t.id === post.post_type)?.label || '💬 General'
+    const isCommentsOpen = openComments === post.id
+    const isUserFollowed = followingMap[post.user_id]
+    const isShowcased = showcasedPostIds.includes(post.id)
+
+    return (
+      <div style={{ background: cardBg, border: isShowcased ? '1px solid rgba(245,158,11,0.4)' : `1px solid ${border}`, borderRadius: '16px', overflow: 'hidden' }}>
+        <div style={{ padding: '1.25rem 1.25rem 0' }}>
+          {isShowcased && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.5rem' }}>
+              <span style={{ fontSize: '0.7rem', color: '#f59e0b', background: 'rgba(245,158,11,0.12)', border: '1px solid rgba(245,158,11,0.3)', borderRadius: '100px', padding: '1px 8px', fontWeight: '600' }}>📌 Showcased</span>
+            </div>
+          )}
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.75rem', marginBottom: '0.75rem' }}>
+            <Avatar userId={post.user_id} />
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+                <p style={{ fontWeight: '600', fontSize: '0.95rem', color: textColor, cursor: 'pointer', margin: 0 }} onClick={() => navigate(`/user/${post.user_id}`)}>{getName(post.user_id)}</p>
+                <span style={{ fontSize: '0.72rem', color: typeColor, background: `${typeColor}18`, border: `1px solid ${typeColor}40`, borderRadius: '100px', padding: '1px 8px', fontWeight: '600' }}>{typeLabel}</span>
+              </div>
+              <p style={{ fontSize: '0.75rem', color: mutedColor, margin: 0 }}>{formatTime(post.created_at)}</p>
+            </div>
+            <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center', flexShrink: 0 }}>
+              {!isOwn && (
+                <button onClick={() => toggleFollowUser(post.user_id)} style={{ padding: '0.3rem 0.7rem', background: isUserFollowed ? 'rgba(108,99,255,0.1)' : 'transparent', color: isUserFollowed ? '#a78bfa' : mutedColor, border: `1px solid ${isUserFollowed ? 'rgba(108,99,255,0.3)' : border}`, borderRadius: '6px', cursor: 'pointer', fontFamily: 'Inter, sans-serif', fontSize: '0.75rem', fontWeight: '600', whiteSpace: 'nowrap' }}>
+                  {isUserFollowed ? '✓ Following' : '+ Follow'}
+                </button>
+              )}
+              {isOwn && (
+                <button onClick={() => toggleShowcase(post.id)} title={isShowcased ? 'Remove from showcase' : 'Add to showcase (max 3)'} style={{ padding: '0.3rem 0.5rem', background: isShowcased ? 'rgba(245,158,11,0.15)' : 'transparent', color: isShowcased ? '#f59e0b' : mutedColor, border: `1px solid ${isShowcased ? 'rgba(245,158,11,0.3)' : border}`, borderRadius: '6px', cursor: 'pointer', fontSize: '0.85rem' }}>
+                  {isShowcased ? '⭐' : '☆'}
+                </button>
+              )}
+              {isOwn && (
+                <button onClick={() => deletePost(post.id)} style={{ background: 'none', border: 'none', color: mutedColor, cursor: 'pointer', fontSize: '0.85rem', padding: '0.25rem' }}>🗑️</button>
+              )}
+            </div>
+          </div>
+
+          {(post.game || post.rank) && (
+            <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.75rem' }}>
+              {post.game && <span style={{ background: 'rgba(108,99,255,0.12)', color: '#a78bfa', border: '1px solid rgba(108,99,255,0.25)', borderRadius: '100px', padding: '0.2rem 0.7rem', fontSize: '0.78rem', fontWeight: '500' }}>🎮 {post.game}</span>}
+              {post.rank && <span style={{ background: 'rgba(245,158,11,0.12)', color: '#f59e0b', border: '1px solid rgba(245,158,11,0.25)', borderRadius: '100px', padding: '0.2rem 0.7rem', fontSize: '0.78rem', fontWeight: '500' }}>🏆 {post.rank}</span>}
+            </div>
+          )}
+
+          {post.content && <p style={{ fontSize: '0.95rem', lineHeight: 1.6, color: textColor, marginBottom: '0.75rem', whiteSpace: 'pre-wrap' }}>{post.content}</p>}
+        </div>
+
+        {post.media_url && (
+          <div style={{ marginBottom: '0.5rem' }}>
+            {post.media_type === 'video' ? (
+              <video src={post.media_url} controls style={{ width: '100%', maxHeight: '400px', background: '#000' }} />
+            ) : (
+              <img src={post.media_url} alt="post" style={{ width: '100%', maxHeight: '400px', objectFit: 'cover', cursor: 'pointer' }} onClick={() => window.open(post.media_url, '_blank')} />
+            )}
+          </div>
+        )}
+
+        <div style={{ padding: '0.75rem 1.25rem', display: 'flex', alignItems: 'center', gap: '1rem', borderTop: `1px solid ${border}` }}>
+          <button onClick={() => toggleLike(post.id)} style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', background: 'none', border: 'none', color: isLiked ? '#ef4444' : mutedColor, cursor: 'pointer', fontFamily: 'Inter, sans-serif', fontSize: '0.9rem', fontWeight: isLiked ? '600' : '400', padding: 0 }}>
+            {isLiked ? '❤️' : '🤍'} {postLikes.length}
+          </button>
+          <button onClick={() => setOpenComments(isCommentsOpen ? null : post.id)} style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', background: 'none', border: 'none', color: isCommentsOpen ? '#a78bfa' : mutedColor, cursor: 'pointer', fontFamily: 'Inter, sans-serif', fontSize: '0.9rem', padding: 0 }}>
+            💬 {postComments.length}
+          </button>
+          {(post.post_type === 'lf_partner' || post.post_type === 'lf_team') && !isOwn && (
+            <button onClick={() => navigate(`/user/${post.user_id}`)} style={{ marginLeft: 'auto', padding: '0.4rem 1rem', background: `${typeColor}18`, color: typeColor, border: `1px solid ${typeColor}40`, borderRadius: '8px', cursor: 'pointer', fontFamily: 'Inter, sans-serif', fontSize: '0.82rem', fontWeight: '600' }}>
+              Connect →
+            </button>
+          )}
+        </div>
+
+        {isCommentsOpen && (
+          <div style={{ padding: '0.75rem 1.25rem 1.25rem', borderTop: `1px solid ${border}` }}>
+            {postComments.length > 0 && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', marginBottom: '1rem' }}>
+                {postComments.map(c => (
+                  <div key={c.id} style={{ display: 'flex', gap: '0.6rem', alignItems: 'flex-start' }}>
+                    <Avatar userId={c.user_id} size={28} />
+                    <div style={{ background: isLight ? 'rgba(0,0,0,0.05)' : 'rgba(255,255,255,0.06)', borderRadius: '12px', padding: '0.5rem 0.85rem', flex: 1 }}>
+                      <p style={{ fontSize: '0.78rem', color: mutedColor, marginBottom: '0.2rem' }}>{getName(c.user_id)}</p>
+                      <p style={{ fontSize: '0.9rem', color: textColor, lineHeight: 1.4 }}>{c.content}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+            <div style={{ display: 'flex', gap: '0.5rem' }}>
+              <Avatar userId={currentUser?.id} size={28} />
+              <input type="text" placeholder="Write a comment..." value={newComment} onChange={e => setNewComment(e.target.value)} onKeyDown={e => e.key === 'Enter' && submitComment(post.id)} style={{ flex: 1, padding: '0.55rem 0.9rem', borderRadius: '20px', border: `1px solid ${inputBorder}`, background: inputBg, color: textColor, fontFamily: 'Inter, sans-serif', fontSize: '0.88rem', outline: 'none' }} />
+              <button onClick={() => submitComment(post.id)} style={{ padding: '0.55rem 0.9rem', background: 'linear-gradient(135deg, #6c63ff, #a78bfa)', color: 'white', border: 'none', borderRadius: '20px', cursor: 'pointer', fontFamily: 'Inter, sans-serif', fontWeight: '600', fontSize: '0.85rem' }}>Post</button>
+            </div>
+          </div>
+        )}
+      </div>
+    )
+  }
+
   return (
     <div style={{ minHeight: 'calc(100vh - 64px)', background: bg, padding: '1.5rem' }}>
       <div style={{ maxWidth: '680px', margin: '0 auto' }}>
 
-        {/* Header */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
           <div>
             <h2 style={{ fontSize: '1.75rem', fontWeight: '700', margin: 0, color: textColor }}>Feed</h2>
@@ -233,6 +395,39 @@ export default function Feed({ theme }) {
             + Post
           </button>
         </div>
+
+        {/* Showcase strip — only show your own showcased posts */}
+        {showcasedPosts.length > 0 && (
+          <div style={{ background: cardBg, border: '1px solid rgba(245,158,11,0.2)', borderRadius: '14px', padding: '1rem 1.25rem', marginBottom: '1.25rem' }}>
+            <p style={{ fontSize: '0.78rem', color: '#f59e0b', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.75rem' }}>⭐ Your Showcase</p>
+            <div style={{ display: 'flex', gap: '0.75rem', overflowX: 'auto', paddingBottom: '0.25rem' }}>
+              {showcasedPosts.map(post => (
+                <div key={post.id} style={{ background: isLight ? 'rgba(0,0,0,0.04)' : 'rgba(255,255,255,0.05)', border: `1px solid ${border}`, borderRadius: '10px', padding: '0.75rem', minWidth: '180px', maxWidth: '180px', flexShrink: 0 }}>
+                  {post.media_url && post.media_type === 'image' && (
+                    <img src={post.media_url} alt="" style={{ width: '100%', height: '80px', objectFit: 'cover', borderRadius: '6px', marginBottom: '0.5rem' }} />
+                  )}
+                  {post.media_url && post.media_type === 'video' && (
+                    <div style={{ width: '100%', height: '80px', background: '#000', borderRadius: '6px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.5rem', marginBottom: '0.5rem' }}>🎬</div>
+                  )}
+                  <p style={{ fontSize: '0.82rem', color: textColor, lineHeight: 1.3, overflow: 'hidden', textOverflow: 'ellipsis', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', marginBottom: '0.4rem' }}>
+                    {post.content || (post.media_type === 'video' ? '🎬 Video clip' : '🖼️ Image post')}
+                  </p>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ fontSize: '0.72rem', color: mutedColor }}>❤️ {(likes[post.id] || []).length}</span>
+                    <button onClick={() => toggleShowcase(post.id)} style={{ background: 'none', border: 'none', color: '#f59e0b', cursor: 'pointer', fontSize: '0.75rem', padding: 0, fontFamily: 'Inter, sans-serif' }}>Remove</button>
+                  </div>
+                </div>
+              ))}
+              {showcasedPostIds.length < 3 && (
+                <div style={{ background: isLight ? 'rgba(0,0,0,0.03)' : 'rgba(255,255,255,0.03)', border: `1px dashed ${border}`, borderRadius: '10px', padding: '0.75rem', minWidth: '120px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: '0.4rem', color: mutedColor, fontSize: '0.8rem' }}>
+                  <span style={{ fontSize: '1.2rem' }}>☆</span>
+                  <span>Pin a post</span>
+                  <span style={{ fontSize: '0.7rem' }}>{3 - showcasedPostIds.length} left</span>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
 
         {/* Feed tabs */}
         <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1.25rem', background: isLight ? 'rgba(0,0,0,0.04)' : 'rgba(255,255,255,0.04)', borderRadius: '12px', padding: '0.35rem' }}>
@@ -295,7 +490,6 @@ export default function Feed({ theme }) {
           ))}
         </div>
 
-        {/* Posts */}
         {loading ? (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
             {[1,2,3].map(i => <div key={i} style={{ background: cardBg, border: `1px solid ${border}`, borderRadius: '16px', height: '160px', animation: 'pulse 1.5s infinite' }} />)}
@@ -306,108 +500,14 @@ export default function Feed({ theme }) {
             <p style={{ fontSize: '1rem', marginBottom: '0.5rem', color: textColor, fontWeight: '600' }}>
               {feedTab === 'following' ? 'No posts from people you follow' : 'No posts yet'}
             </p>
-            <p style={{ fontSize: '0.9rem' }}>
-              {feedTab === 'following' ? 'Follow some players to see their posts here!' : 'Be the first to post!'}
-            </p>
+            <p>{feedTab === 'following' ? 'Follow some players to see their posts here!' : 'Be the first to post!'}</p>
             {feedTab === 'following' && (
               <button onClick={() => setFeedTab('all')} style={{ marginTop: '1rem', padding: '0.6rem 1.5rem', background: 'rgba(108,99,255,0.15)', color: '#a78bfa', border: '1px solid rgba(108,99,255,0.3)', borderRadius: '8px', cursor: 'pointer', fontFamily: 'Inter, sans-serif' }}>Browse all posts</button>
             )}
           </div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-            {visiblePosts.map(post => {
-              const postLikes = likes[post.id] || []
-              const postComments = comments[post.id] || []
-              const isLiked = postLikes.some(l => l.user_id === currentUser?.id)
-              const isOwn = post.user_id === currentUser?.id
-              const typeColor = TYPE_COLORS[post.post_type] || '#6c63ff'
-              const typeLabel = POST_TYPES.find(t => t.id === post.post_type)?.label || '💬 General'
-              const isCommentsOpen = openComments === post.id
-              const isUserFollowed = followingMap[post.user_id]
-
-              return (
-                <div key={post.id} style={{ background: cardBg, border: `1px solid ${border}`, borderRadius: '16px', overflow: 'hidden' }}>
-                  <div style={{ padding: '1.25rem 1.25rem 0' }}>
-                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.75rem', marginBottom: '0.75rem' }}>
-                      <Avatar userId={post.user_id} />
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
-                          <p style={{ fontWeight: '600', fontSize: '0.95rem', color: textColor, cursor: 'pointer', margin: 0 }} onClick={() => navigate(`/user/${post.user_id}`)}>{getName(post.user_id)}</p>
-                          <span style={{ fontSize: '0.72rem', color: typeColor, background: `${typeColor}18`, border: `1px solid ${typeColor}40`, borderRadius: '100px', padding: '1px 8px', fontWeight: '600' }}>{typeLabel}</span>
-                        </div>
-                        <p style={{ fontSize: '0.75rem', color: mutedColor, margin: 0 }}>{formatTime(post.created_at)}</p>
-                      </div>
-                      <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-                        {!isOwn && (
-                          <button onClick={() => toggleFollowUser(post.user_id)} style={{ padding: '0.3rem 0.7rem', background: isUserFollowed ? 'rgba(108,99,255,0.1)' : 'transparent', color: isUserFollowed ? '#a78bfa' : mutedColor, border: `1px solid ${isUserFollowed ? 'rgba(108,99,255,0.3)' : border}`, borderRadius: '6px', cursor: 'pointer', fontFamily: 'Inter, sans-serif', fontSize: '0.75rem', fontWeight: '600', whiteSpace: 'nowrap' }}>
-                            {isUserFollowed ? '✓ Following' : '+ Follow'}
-                          </button>
-                        )}
-                        {isOwn && (
-                          <button onClick={() => deletePost(post.id)} style={{ background: 'none', border: 'none', color: mutedColor, cursor: 'pointer', fontSize: '0.85rem', padding: '0.25rem' }}>🗑️</button>
-                        )}
-                      </div>
-                    </div>
-
-                    {(post.game || post.rank) && (
-                      <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.75rem' }}>
-                        {post.game && <span style={{ background: 'rgba(108,99,255,0.12)', color: '#a78bfa', border: '1px solid rgba(108,99,255,0.25)', borderRadius: '100px', padding: '0.2rem 0.7rem', fontSize: '0.78rem', fontWeight: '500' }}>🎮 {post.game}</span>}
-                        {post.rank && <span style={{ background: 'rgba(245,158,11,0.12)', color: '#f59e0b', border: '1px solid rgba(245,158,11,0.25)', borderRadius: '100px', padding: '0.2rem 0.7rem', fontSize: '0.78rem', fontWeight: '500' }}>🏆 {post.rank}</span>}
-                      </div>
-                    )}
-
-                    {post.content && <p style={{ fontSize: '0.95rem', lineHeight: 1.6, color: textColor, marginBottom: '0.75rem', whiteSpace: 'pre-wrap' }}>{post.content}</p>}
-                  </div>
-
-                  {post.media_url && (
-                    <div style={{ marginBottom: '0.5rem' }}>
-                      {post.media_type === 'video' ? (
-                        <video src={post.media_url} controls style={{ width: '100%', maxHeight: '400px', background: '#000' }} />
-                      ) : (
-                        <img src={post.media_url} alt="post" style={{ width: '100%', maxHeight: '400px', objectFit: 'cover', cursor: 'pointer' }} onClick={() => window.open(post.media_url, '_blank')} />
-                      )}
-                    </div>
-                  )}
-
-                  <div style={{ padding: '0.75rem 1.25rem', display: 'flex', alignItems: 'center', gap: '1rem', borderTop: `1px solid ${border}` }}>
-                    <button onClick={() => toggleLike(post.id)} style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', background: 'none', border: 'none', color: isLiked ? '#ef4444' : mutedColor, cursor: 'pointer', fontFamily: 'Inter, sans-serif', fontSize: '0.9rem', fontWeight: isLiked ? '600' : '400', padding: 0 }}>
-                      {isLiked ? '❤️' : '🤍'} {postLikes.length}
-                    </button>
-                    <button onClick={() => setOpenComments(isCommentsOpen ? null : post.id)} style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', background: 'none', border: 'none', color: isCommentsOpen ? '#a78bfa' : mutedColor, cursor: 'pointer', fontFamily: 'Inter, sans-serif', fontSize: '0.9rem', padding: 0 }}>
-                      💬 {postComments.length}
-                    </button>
-                    {(post.post_type === 'lf_partner' || post.post_type === 'lf_team') && !isOwn && (
-                      <button onClick={() => navigate(`/user/${post.user_id}`)} style={{ marginLeft: 'auto', padding: '0.4rem 1rem', background: `${typeColor}18`, color: typeColor, border: `1px solid ${typeColor}40`, borderRadius: '8px', cursor: 'pointer', fontFamily: 'Inter, sans-serif', fontSize: '0.82rem', fontWeight: '600' }}>
-                        Connect →
-                      </button>
-                    )}
-                  </div>
-
-                  {isCommentsOpen && (
-                    <div style={{ padding: '0.75rem 1.25rem 1.25rem', borderTop: `1px solid ${border}` }}>
-                      {postComments.length > 0 && (
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', marginBottom: '1rem' }}>
-                          {postComments.map(c => (
-                            <div key={c.id} style={{ display: 'flex', gap: '0.6rem', alignItems: 'flex-start' }}>
-                              <Avatar userId={c.user_id} size={28} />
-                              <div style={{ background: isLight ? 'rgba(0,0,0,0.05)' : 'rgba(255,255,255,0.06)', borderRadius: '12px', padding: '0.5rem 0.85rem', flex: 1 }}>
-                                <p style={{ fontSize: '0.78rem', color: mutedColor, marginBottom: '0.2rem' }}>{getName(c.user_id)}</p>
-                                <p style={{ fontSize: '0.9rem', color: textColor, lineHeight: 1.4 }}>{c.content}</p>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                      <div style={{ display: 'flex', gap: '0.5rem' }}>
-                        <Avatar userId={currentUser?.id} size={28} />
-                        <input type="text" placeholder="Write a comment..." value={newComment} onChange={e => setNewComment(e.target.value)} onKeyDown={e => e.key === 'Enter' && submitComment(post.id)} style={{ flex: 1, padding: '0.55rem 0.9rem', borderRadius: '20px', border: `1px solid ${inputBorder}`, background: inputBg, color: textColor, fontFamily: 'Inter, sans-serif', fontSize: '0.88rem', outline: 'none' }} />
-                        <button onClick={() => submitComment(post.id)} style={{ padding: '0.55rem 0.9rem', background: 'linear-gradient(135deg, #6c63ff, #a78bfa)', color: 'white', border: 'none', borderRadius: '20px', cursor: 'pointer', fontFamily: 'Inter, sans-serif', fontWeight: '600', fontSize: '0.85rem' }}>Post</button>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )
-            })}
+            {visiblePosts.map(post => <PostCard key={post.id} post={post} />)}
           </div>
         )}
       </div>
