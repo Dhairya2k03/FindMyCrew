@@ -1,6 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
 import { useParams } from 'react-router-dom'
-import VoiceChat from '../components/VoiceChat'
 import { supabase } from '../lib/supabaseClient'
 
 const formatLastSeen = (date) => {
@@ -19,6 +18,8 @@ const formatTimestamp = (timestamp) => {
   return date.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true })
 }
 
+const makeTempId = () => (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `temp-${Math.random().toString(36).slice(2)}`)
+
 const EMOJI_OPTIONS = ['❤️', '😂', '😮', '😢', '👍', '🔥']
 
 export default function Chat({ theme }) {
@@ -32,7 +33,6 @@ export default function Chat({ theme }) {
   const [isOtherOnline, setIsOtherOnline] = useState(false)
   const [isOtherTyping, setIsOtherTyping] = useState(false)
   const [hoveredMsg, setHoveredMsg] = useState(null)
-  const [voiceOpen, setVoiceOpen] = useState(false)
   const [emojiPickerMsg, setEmojiPickerMsg] = useState(null)
   const [replyTo, setReplyTo] = useState(null)
   const [searchOpen, setSearchOpen] = useState(false)
@@ -168,12 +168,17 @@ export default function Chat({ theme }) {
   useEffect(() => {
     if (searchOpen) {
       setTimeout(() => searchInputRef.current?.focus(), 100)
-    } else {
+    }
+  }, [searchOpen])
+
+  const toggleSearch = () => {
+    if (searchOpen) {
       setSearchQuery('')
       setSearchResults([])
       setHighlightedMsgId(null)
     }
-  }, [searchOpen])
+    setSearchOpen(prev => !prev)
+  }
 
   const handleSearch = (q) => {
     setSearchQuery(q)
@@ -230,7 +235,7 @@ export default function Chat({ theme }) {
     setShowMentions(false)
     clearTimeout(typingTimeoutRef.current)
     broadcastChannelRef.current?.send({ type: 'broadcast', event: 'typing', payload: { typing: false, userId: currentUser.id } })
-    const tempMsg = { id: `temp-${Date.now()}`, sender_id: currentUser.id, receiver_id: userId, content, created_at: new Date(), read_at: null, reply_to: replyTo?.id || null, reply_content: replyTo?.content || null }
+    const tempMsg = { id: makeTempId(), sender_id: currentUser.id, receiver_id: userId, content, created_at: new Date(), read_at: null, reply_to: replyTo?.id || null, reply_content: replyTo?.content || null }
     setMessages(prev => [...prev, tempMsg])
     supabase.from('messages').insert({ sender_id: currentUser.id, receiver_id: userId, content, reply_to: replyTo?.id || null, reply_content: replyTo?.content || null }).select().single().then(({ data }) => {
       if (data) setMessages(prev => prev.map(m => m.id === tempMsg.id ? data : m))
@@ -269,7 +274,7 @@ export default function Chat({ theme }) {
       setReactions(prev => ({ ...prev, [msgId]: (prev[msgId] || []).filter(r => r.id !== existing.id) }))
       await supabase.from('message_reactions').delete().eq('id', existing.id)
     } else {
-      const tempId = `temp-${Date.now()}`
+      const tempId = makeTempId()
       setReactions(prev => ({ ...prev, [msgId]: [...(prev[msgId] || []), { id: tempId, message_id: msgId, user_id: currentUser.id, emoji }] }))
       const { data } = await supabase.from('message_reactions').insert({ message_id: msgId, user_id: currentUser.id, emoji }).select().single()
       if (data) setReactions(prev => ({ ...prev, [msgId]: (prev[msgId] || []).map(r => r.id === tempId ? data : r) }))
@@ -294,7 +299,7 @@ export default function Chat({ theme }) {
     const { error: uploadError } = await supabase.storage.from('chat-images').upload(fileName, file)
     if (uploadError) { alert('Failed to upload image: ' + uploadError.message); setUploading(false); return }
     const { data: { publicUrl } } = supabase.storage.from('chat-images').getPublicUrl(fileName)
-    const tempMsg = { id: `temp-${Date.now()}`, sender_id: currentUser.id, receiver_id: userId, content: `[image]${publicUrl}`, created_at: new Date(), read_at: null }
+    const tempMsg = { id: makeTempId(), sender_id: currentUser.id, receiver_id: userId, content: `[image]${publicUrl}`, created_at: new Date(), read_at: null }
     setMessages(prev => [...prev, tempMsg])
     supabase.from('messages').insert({ sender_id: currentUser.id, receiver_id: userId, content: `[image]${publicUrl}` }).select().single().then(({ data }) => {
       if (data) setMessages(prev => prev.map(m => m.id === tempMsg.id ? data : m))
@@ -360,7 +365,7 @@ export default function Chat({ theme }) {
           <p style={{ fontSize: '0.8rem', color: status.color, margin: 0 }}>{status.text}</p>
         </div>
         <button
-          onClick={() => setSearchOpen(!searchOpen)}
+          onClick={toggleSearch}
           style={{ background: searchOpen ? 'rgba(108,99,255,0.2)' : inputBg, border: searchOpen ? '1px solid rgba(108,99,255,0.4)' : `1px solid ${border}`, color: searchOpen ? '#a78bfa' : mutedColor, borderRadius: '8px', padding: '0.5rem 0.75rem', cursor: 'pointer', fontSize: '0.9rem', fontFamily: 'Inter, sans-serif' }}
           title="Search messages"
         >
@@ -538,12 +543,9 @@ export default function Chat({ theme }) {
         <button onClick={() => fileInputRef.current.click()} disabled={uploading} style={{ padding: '0.85rem', background: inputBg, color: uploading ? mutedColor : '#a78bfa', border: `1px solid ${inputBorder}`, borderRadius: '10px', cursor: uploading ? 'default' : 'pointer', fontSize: '1.2rem', lineHeight: 1 }}>
           {uploading ? '⏳' : '📷'}
         </button>
-        <button onClick={() => setVoiceOpen(!voiceOpen)} style={{ padding: '0.85rem', background: voiceOpen ? 'rgba(16,185,129,0.15)' : inputBg, color: voiceOpen ? '#10b981' : '#a78bfa', border: voiceOpen ? '1px solid rgba(16,185,129,0.3)' : `1px solid ${inputBorder}`, borderRadius: '10px', cursor: 'pointer', fontSize: '1.2rem', lineHeight: 1 }}>🎙️</button>
         <input ref={inputRef} type="text" placeholder={replyTo ? `Replying to ${truncate(replyTo.content, 20)}...` : 'Type a message...'} value={newMessage} onChange={handleTyping} onKeyDown={e => e.key === 'Enter' && sendMessage()} style={{ flex: 1, padding: '0.85rem 1rem', borderRadius: '10px', border: `1px solid ${inputBorder}`, background: inputBg, color: textColor, fontFamily: 'Inter, sans-serif', fontSize: '0.95rem', outline: 'none' }} />
         <button onClick={sendMessage} style={{ padding: '0.85rem 1.5rem', background: 'linear-gradient(135deg, #6c63ff, #a78bfa)', color: 'white', border: 'none', borderRadius: '10px', cursor: 'pointer', fontFamily: 'Inter, sans-serif', fontWeight: '600' }}>Send</button>
       </div>
-
-      {voiceOpen && <VoiceChat roomName={`chat-${[currentUser?.id, userId].sort().join('-')}`} onClose={() => setVoiceOpen(false)} />}
 
       <style>{`
         @keyframes bounce {
