@@ -1,22 +1,13 @@
 import { useState, useEffect, useRef } from 'react'
-import { useParams } from 'react-router-dom'
+import { useParams, useNavigate } from 'react-router-dom'
 import VoiceChat from '../components/VoiceChat'
 import { supabase } from '../lib/supabaseClient'
 
-const formatLastSeen = (date) => {
-  if (!date) return 'Offline'
-  const d = new Date(date)
-  const diff = new Date() - d
-  if (diff < 60000) return 'Last seen just now'
-  if (diff < 3600000) return `Last seen ${Math.floor(diff / 60000)}m ago`
-  if (diff < 86400000) return `Last seen ${Math.floor(diff / 3600000)}h ago`
-  if (diff < 604800000) return `Last seen ${Math.floor(diff / 86400000)}d ago`
-  return `Last seen ${d.toLocaleDateString()}`
-}
-
-const formatTimestamp = (timestamp) => {
-  const date = new Date(timestamp)
-  return date.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true })
+const ROLE_CONFIG = {
+  leader: { label: '👑 Leader', color: '#f59e0b' },
+  admin: { label: '🛡️ Admin', color: '#6c63ff' },
+  elder: { label: '🌿 Elder', color: '#10b981' },
+  member: { label: 'Member', color: '#888' },
 }
 
 const EMOJI_OPTIONS = ['❤️', '😂', '😮', '😢', '👍', '🔥']
@@ -135,7 +126,9 @@ export default function GroupChat({ theme }) {
       try {
         const { data: pinned } = await supabase.from('pinned_messages').select('*').eq('chat_type', 'group').eq('chat_id', groupId).order('created_at', { ascending: false }).limit(1).single()
         if (pinned) setPinnedMessage(pinned)
-      } catch {}
+      } catch {
+        // no pinned message exists yet — safe to ignore
+      }
       const presenceCh = supabase.channel('group-presence-' + groupId, { config: { presence: { key: user.id } } })
       presenceCh
         .on('presence', { event: 'sync' }, () => { setOnlineMembers(new Set(Object.keys(presenceCh.presenceState()))) })
@@ -200,19 +193,25 @@ export default function GroupChat({ theme }) {
   useEffect(() => {
     if (searchOpen) {
       setTimeout(() => searchInputRef.current?.focus(), 100)
-    } else {
+    }
+  }, [searchOpen])
+
+  const toggleSearch = () => {
+    if (searchOpen) {
       setSearchQuery('')
       setSearchResults([])
       setHighlightedMsgId(null)
     }
-  }, [searchOpen])
+    setSearchOpen(prev => !prev)
+  }
 
   const sendMessage = async () => {
     if (!newMessage.trim()) return
     const content = newMessage.trim()
     setNewMessage('')
     setShowMentions(false)
-    const tempMsg = { id: `temp-${Date.now()}`, group_id: groupId, sender_id: currentUser.id, content, created_at: new Date() }
+    const tempId = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `temp-${Math.random().toString(36).slice(2)}`
+    const tempMsg = { id: tempId, group_id: groupId, sender_id: currentUser.id, content, created_at: new Date() }
     setMessages(prev => [...prev, tempMsg])
     const { data } = await supabase.from('group_messages').insert({ group_id: groupId, sender_id: currentUser.id, content }).select().single()
     if (data) setMessages(prev => prev.map(m => m.id === tempMsg.id ? data : m))
@@ -232,13 +231,21 @@ export default function GroupChat({ theme }) {
 
   const pinMessage = async (msg) => {
     if (myRole !== 'leader' && myRole !== 'admin') return
-    try { await supabase.from('pinned_messages').delete().eq('chat_type', 'group').eq('chat_id', groupId) } catch {}
+    try {
+      await supabase.from('pinned_messages').delete().eq('chat_type', 'group').eq('chat_id', groupId)
+    } catch {
+      // nothing pinned previously — safe to ignore
+    }
     const { data } = await supabase.from('pinned_messages').insert({ chat_type: 'group', chat_id: groupId, message_id: msg.id, message_content: msg.content, pinned_by: currentUser.id }).select().single()
     if (data) { setPinnedMessage(data); setShowPinned(true) }
   }
 
   const unpinMessage = async () => {
-    try { await supabase.from('pinned_messages').delete().eq('chat_type', 'group').eq('chat_id', groupId) } catch {}
+    try {
+      await supabase.from('pinned_messages').delete().eq('chat_type', 'group').eq('chat_id', groupId)
+    } catch {
+      // nothing pinned previously — safe to ignore
+    }
     setPinnedMessage(null)
   }
 
@@ -284,7 +291,7 @@ export default function GroupChat({ theme }) {
       setReactions(prev => ({ ...prev, [msgId]: (prev[msgId] || []).filter(r => r.id !== existing.id) }))
       await supabase.from('group_message_reactions').delete().eq('id', existing.id)
     } else {
-      const tempId = `temp-${Date.now()}`
+      const tempId = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `temp-${Math.random().toString(36).slice(2)}`
       setReactions(prev => ({ ...prev, [msgId]: [...(prev[msgId] || []), { id: tempId, message_id: msgId, user_id: currentUser.id, emoji }] }))
       const { data } = await supabase.from('group_message_reactions').insert({ message_id: msgId, user_id: currentUser.id, emoji }).select().single()
       if (data) setReactions(prev => ({ ...prev, [msgId]: (prev[msgId] || []).map(r => r.id === tempId ? data : r) }))
@@ -628,12 +635,12 @@ export default function GroupChat({ theme }) {
               <p style={{ fontWeight: '700', fontSize: '0.95rem', color: textColor }}>{group?.name}</p>
               <p style={{ color: '#a78bfa', fontSize: '0.75rem' }}>{group?.game}</p>
             </div>
-            <button onClick={() => setSearchOpen(!searchOpen)} style={{ background: searchOpen ? 'rgba(108,99,255,0.2)' : inputBg, border: searchOpen ? '1px solid rgba(108,99,255,0.4)' : `1px solid ${inputBorder}`, color: searchOpen ? '#a78bfa' : mutedColor, borderRadius: '8px', padding: '0.4rem 0.75rem', cursor: 'pointer', fontSize: '0.9rem', fontFamily: 'Inter, sans-serif' }}>🔍</button>
+            <button onClick={toggleSearch} style={{ background: searchOpen ? 'rgba(108,99,255,0.2)' : inputBg, border: searchOpen ? '1px solid rgba(108,99,255,0.4)' : `1px solid ${inputBorder}`, color: searchOpen ? '#a78bfa' : mutedColor, borderRadius: '8px', padding: '0.4rem 0.75rem', cursor: 'pointer', fontSize: '0.9rem', fontFamily: 'Inter, sans-serif' }}>🔍</button>
             <button onClick={() => setSidebarOpen(true)} style={{ background: inputBg, border: `1px solid ${inputBorder}`, color: textColor, borderRadius: '8px', padding: '0.4rem 0.75rem', cursor: 'pointer', fontFamily: 'Inter, sans-serif', fontSize: '0.8rem' }}>👥 {members.length + 1}</button>
           </div>
 
           <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '0.5rem' }}>
-            <button onClick={() => setSearchOpen(!searchOpen)} style={{ background: searchOpen ? 'rgba(108,99,255,0.2)' : inputBg, border: searchOpen ? '1px solid rgba(108,99,255,0.4)' : `1px solid ${inputBorder}`, color: searchOpen ? '#a78bfa' : mutedColor, borderRadius: '8px', padding: '0.5rem 0.75rem', cursor: 'pointer', fontSize: '0.9rem', fontFamily: 'Inter, sans-serif' }}>
+            <button onClick={toggleSearch} style={{ background: searchOpen ? 'rgba(108,99,255,0.2)' : inputBg, border: searchOpen ? '1px solid rgba(108,99,255,0.4)' : `1px solid ${inputBorder}`, color: searchOpen ? '#a78bfa' : mutedColor, borderRadius: '8px', padding: '0.5rem 0.75rem', cursor: 'pointer', fontSize: '0.9rem', fontFamily: 'Inter, sans-serif' }}>
               🔍 Search
             </button>
           </div>
