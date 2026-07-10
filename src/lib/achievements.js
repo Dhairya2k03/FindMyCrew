@@ -5,7 +5,9 @@ export const awardAchievement = async (userId, type) => {
     await supabase
       .from('achievements')
       .upsert({ user_id: userId, type }, { onConflict: 'user_id,type' })
-  } catch {}
+  } catch {
+    // best-effort — don't block the caller if the award insert fails
+  }
 }
 
 export const checkAndAwardAchievements = async (userId) => {

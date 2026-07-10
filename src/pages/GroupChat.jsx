@@ -9,6 +9,8 @@ const ROLE_CONFIG = {
   member: { label: 'Member', color: '#888' },
 }
 
+const makeTempId = () => crypto.randomUUID()
+
 const EMOJI_OPTIONS = ['❤️', '😂', '😮', '😢', '👍', '🔥']
 
 export default function GroupChat({ theme }) {
@@ -208,8 +210,7 @@ export default function GroupChat({ theme }) {
     const content = newMessage.trim()
     setNewMessage('')
     setShowMentions(false)
-    const tempId = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `temp-${Math.random().toString(36).slice(2)}`
-    const tempMsg = { id: tempId, group_id: groupId, sender_id: currentUser.id, content, created_at: new Date() }
+    const tempMsg = { id: makeTempId(), group_id: groupId, sender_id: currentUser.id, content, created_at: new Date() }
     setMessages(prev => [...prev, tempMsg])
     const { data } = await supabase.from('group_messages').insert({ group_id: groupId, sender_id: currentUser.id, content }).select().single()
     if (data) setMessages(prev => prev.map(m => m.id === tempMsg.id ? data : m))
@@ -289,7 +290,7 @@ export default function GroupChat({ theme }) {
       setReactions(prev => ({ ...prev, [msgId]: (prev[msgId] || []).filter(r => r.id !== existing.id) }))
       await supabase.from('group_message_reactions').delete().eq('id', existing.id)
     } else {
-      const tempId = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `temp-${Math.random().toString(36).slice(2)}`
+      const tempId = makeTempId()
       setReactions(prev => ({ ...prev, [msgId]: [...(prev[msgId] || []), { id: tempId, message_id: msgId, user_id: currentUser.id, emoji }] }))
       const { data } = await supabase.from('group_message_reactions').insert({ message_id: msgId, user_id: currentUser.id, emoji }).select().single()
       if (data) setReactions(prev => ({ ...prev, [msgId]: (prev[msgId] || []).map(r => r.id === tempId ? data : r) }))
@@ -547,7 +548,7 @@ export default function GroupChat({ theme }) {
   const sortedMembers = [...members].sort((a, b) => { const order = { admin: 0, elder: 1, member: 2 }; return (order[a.role] ?? 2) - (order[b.role] ?? 2) })
   const formatEventTime = (dt) => new Date(dt).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
 
-  const Sidebar = () => (
+  const renderSidebar = () => (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', height: '100%', overflowY: 'auto' }}>
       <div>
         <button onClick={() => navigate('/groups')} style={{ background: 'none', border: 'none', color: mutedColor, cursor: 'pointer', fontFamily: 'Inter, sans-serif', marginBottom: '1rem', padding: 0, fontSize: '0.9rem' }}>← Back to Groups</button>
@@ -624,7 +625,7 @@ export default function GroupChat({ theme }) {
     <>
       <div style={{ display: 'flex', height: 'calc(100vh - 64px)', background: bg }}>
         <div className="desktop-sidebar" style={{ width: '260px', borderRight: `1px solid ${border}`, padding: '1.5rem', flexShrink: 0 }}>
-          <Sidebar />
+          {renderSidebar()}
         </div>
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', padding: '1rem', minWidth: 0 }}>
           <div className="mobile-header" style={{ display: 'none', alignItems: 'center', gap: '0.75rem', marginBottom: '1rem' }}>
@@ -898,7 +899,7 @@ export default function GroupChat({ theme }) {
           <div onClick={() => setSidebarOpen(false)} style={{ flex: 1, background: 'rgba(0,0,0,0.5)' }} />
           <div style={{ width: '280px', background: isLight ? '#f0f0f7' : '#0f0f1a', borderLeft: `1px solid ${border}`, padding: '1.5rem', overflowY: 'auto' }}>
             <button onClick={() => setSidebarOpen(false)} style={{ background: 'none', border: 'none', color: mutedColor, cursor: 'pointer', fontSize: '1.2rem', marginBottom: '1rem', padding: 0 }}>✕</button>
-            <Sidebar />
+            {renderSidebar()}
           </div>
         </div>
       )}
