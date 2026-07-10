@@ -21,6 +21,7 @@ import Messages from './pages/Messages'
 import AchievementsPage from './pages/AchievementsPage'
 import AdminPanel from './pages/AdminPanel'
 import Feed from './pages/Feed'
+import LFG from './pages/LFG'
 
 function ProtectedRoute({ user, children }) {
   if (!user) return <Navigate to="/login" />
@@ -82,6 +83,7 @@ export default function App() {
 
         <Route path="/admin" element={<ProtectedRoute user={user}><AdminPanel theme={theme} /></ProtectedRoute>} />
         <Route path="/feed" element={<ProtectedRoute user={user}><Feed theme={theme} /></ProtectedRoute>} />
+        <Route path="/lfg" element={<ProtectedRoute user={user}><LFG theme={theme} /></ProtectedRoute>} />
 
         <Route path="*" element={<Navigate to={user ? "/" : "/login"} />} />
       </Routes>
