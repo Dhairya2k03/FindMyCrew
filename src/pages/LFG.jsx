@@ -106,7 +106,7 @@ export default function LFG({ theme }) {
   const [expandedPost, setExpandedPost] = useState(null)
   const [myRequestMessage, setMyRequestMessage] = useState('')
   const [filters, setFilters] = useState({ game: '', region: '', mode: '', status: 'open' })
-  const [newPost, setNewPost] = useState({ game: '', mode: 'Any', rank: '', region: 'Any', mic_required: false, age_range: 'Any', slots: 1, description: '' })
+  const [newPost, setNewPost] = useState({ game: '', mode: 'Any', rank: '', region: 'Any', mic_required: false, age_range: 'Any', slots: 1 })
   const navigate = useNavigate()
 
   const isLight = theme === 'light'
@@ -195,7 +195,6 @@ export default function LFG({ theme }) {
 
   const createPost = async () => {
     if (!newPost.game) return alert('Please select a game')
-    if (!newPost.description.trim()) return alert('Please add a description')
     const { error } = await supabase.from('lfg_posts').insert({
       user_id: currentUser.id,
       game: newPost.game,
@@ -205,11 +204,10 @@ export default function LFG({ theme }) {
       mic_required: newPost.mic_required,
       age_range: newPost.age_range,
       slots: newPost.slots,
-      description: newPost.description.trim(),
       status: 'open'
     })
     if (error) return alert(error.message)
-    setNewPost({ game: '', mode: 'Any', rank: '', region: 'Any', mic_required: false, age_range: 'Any', slots: 1, description: '' })
+    setNewPost({ game: '', mode: 'Any', rank: '', region: 'Any', mic_required: false, age_range: 'Any', slots: 1 })
     setShowCreate(false)
   }
 
@@ -321,10 +319,6 @@ export default function LFG({ theme }) {
                 </select>
               </div>
             </div>
-            <div style={{ marginBottom: '0.75rem' }}>
-              <label style={{ fontSize: '0.8rem', color: mutedColor, display: 'block', marginBottom: '0.3rem' }}>Description *</label>
-              <textarea placeholder="What are you looking for? Playstyle, schedule, requirements..." value={newPost.description} onChange={e => setNewPost(p => ({ ...p, description: e.target.value }))} rows={3} style={{ ...inputStyle, resize: 'none' }} />
-            </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '1rem' }}>
               <input type="checkbox" id="mic" checked={newPost.mic_required} onChange={e => setNewPost(p => ({ ...p, mic_required: e.target.checked }))} style={{ width: '16px', height: '16px', cursor: 'pointer' }} />
               <label htmlFor="mic" style={{ color: textColor, fontSize: '0.9rem', cursor: 'pointer' }}>🎙️ Mic required</label>
@@ -414,7 +408,9 @@ export default function LFG({ theme }) {
                       {post.age_range && post.age_range !== 'Any' && <span style={{ background: isLight ? 'rgba(0,0,0,0.06)' : 'rgba(255,255,255,0.06)', color: mutedColor, border: `1px solid ${border}`, borderRadius: '100px', padding: '0.25rem 0.75rem', fontSize: '0.82rem' }}>👤 {post.age_range}</span>}
                     </div>
 
-                    <p style={{ fontSize: '0.95rem', color: textColor, lineHeight: 1.6, marginBottom: '1rem' }}>{post.description}</p>
+                    {post.description && (
+                      <p style={{ fontSize: '0.95rem', color: textColor, lineHeight: 1.6, marginBottom: '1rem' }}>{post.description}</p>
+                    )}
 
                     <div style={{ marginBottom: '1rem' }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.4rem' }}>
