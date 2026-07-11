@@ -18,6 +18,17 @@ const formatTimestamp = (timestamp) => {
   return date.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true })
 }
 
+const formatDateDivider = (timestamp) => {
+  const d = new Date(timestamp)
+  const today = new Date()
+  const yesterday = new Date(today)
+  yesterday.setDate(yesterday.getDate() - 1)
+  const sameDay = (a, b) => a.toDateString() === b.toDateString()
+  if (sameDay(d, today)) return 'Today'
+  if (sameDay(d, yesterday)) return 'Yesterday'
+  return d.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: d.getFullYear() !== today.getFullYear() ? 'numeric' : undefined })
+}
+
 const makeTempId = () => (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `temp-${Math.random().toString(36).slice(2)}`)
 
 const EMOJI_OPTIONS = ['❤️', '😂', '😮', '😢', '👍', '🔥']
@@ -43,6 +54,7 @@ export default function Chat({ theme }) {
   const [editContent, setEditContent] = useState('')
   const [showMentions, setShowMentions] = useState(false)
   const [mentionQuery, setMentionQuery] = useState('')
+  const [inputFocused, setInputFocused] = useState(false)
   const bottomRef = useRef(null)
   const fileInputRef = useRef(null)
   const inputRef = useRef(null)
@@ -58,10 +70,11 @@ export default function Chat({ theme }) {
   const border      = isLight ? 'rgba(0,0,0,0.08)'       : 'rgba(255,255,255,0.08)'
   const textColor   = isLight ? '#111'                   : 'white'
   const mutedColor  = isLight ? '#555'                   : '#888'
-  const inputBg     = isLight ? 'rgba(0,0,0,0.04)'       : 'rgba(255,255,255,0.05)'
+  const inputBg     = isLight ? 'rgba(255,255,255,0.9)'  : 'rgba(255,255,255,0.06)'
   const inputBorder = isLight ? 'rgba(0,0,0,0.1)'        : 'rgba(255,255,255,0.1)'
-  const bubbleOther = isLight ? 'rgba(0,0,0,0.07)'       : 'rgba(255,255,255,0.08)'
-  const headerBg    = isLight ? 'rgba(0,0,0,0.03)'       : 'rgba(255,255,255,0.03)'
+  const bubbleOther = isLight ? '#ffffff'                : 'rgba(255,255,255,0.07)'
+  const headerBg    = isLight ? 'rgba(255,255,255,0.75)' : 'rgba(255,255,255,0.04)'
+  const panelShadow = isLight ? '0 4px 24px rgba(17,17,17,0.06)' : '0 4px 24px rgba(0,0,0,0.35)'
 
   useEffect(() => { userIdRef.current = userId }, [userId])
 
@@ -332,7 +345,7 @@ export default function Chat({ theme }) {
   const renderMessage = (msg) => {
     if (msg.content?.startsWith('[image]')) {
       const url = msg.content.replace('[image]', '')
-      return <img src={url} alt="sent image" style={{ maxWidth: '250px', maxHeight: '250px', borderRadius: '12px', display: 'block', cursor: 'pointer' }} onClick={() => window.open(url, '_blank')} />
+      return <img src={url} alt="sent image" style={{ maxWidth: '250px', maxHeight: '250px', borderRadius: '14px', display: 'block', cursor: 'pointer', boxShadow: '0 4px 16px rgba(0,0,0,0.25)' }} onClick={() => window.open(url, '_blank')} />
     }
     return <span>{renderTextWithMentionsAndSearch(msg.content)}</span>
   }
@@ -344,29 +357,49 @@ export default function Chat({ theme }) {
   const color = avatarColors[name.charCodeAt(0) % avatarColors.length]
 
   const getStatus = () => {
-    if (isOtherTyping) return { text: '● typing...', color: '#a78bfa' }
-    if (isOtherOnline) return { text: '● Online', color: '#4caf50' }
-    return { text: formatLastSeen(otherUser?.last_seen), color: mutedColor }
+    if (isOtherTyping) return { text: 'typing...', color: '#a78bfa', dot: '#a78bfa' }
+    if (isOtherOnline) return { text: 'Online', color: '#4caf50', dot: '#4caf50' }
+    return { text: formatLastSeen(otherUser?.last_seen), color: mutedColor, dot: 'transparent' }
   }
   const status = getStatus()
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 64px)', maxWidth: '700px', margin: '0 auto', padding: '1.5rem', background: bg }}>
+    <div style={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 64px)', maxWidth: '700px', margin: '0 auto', padding: '1.5rem', background: bg, backgroundImage: isLight
+      ? 'radial-gradient(circle at 85% 0%, rgba(108,99,255,0.07), transparent 45%), radial-gradient(circle at 0% 100%, rgba(167,139,250,0.06), transparent 40%)'
+      : 'radial-gradient(circle at 85% 0%, rgba(108,99,255,0.10), transparent 45%), radial-gradient(circle at 0% 100%, rgba(167,139,250,0.07), transparent 40%)',
+      position: 'relative' }}>
 
       {/* Header */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '1rem', padding: '1rem 1.5rem', background: headerBg, borderRadius: '12px', border: `1px solid ${border}` }}>
-        {otherUser?.avatar_url ? (
-          <img src={otherUser.avatar_url} alt={name} style={{ width: '40px', height: '40px', borderRadius: '50%', objectFit: 'cover' }} />
-        ) : (
-          <div style={{ width: '40px', height: '40px', borderRadius: '50%', background: color, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: '700', color: 'white' }}>{name[0]?.toUpperCase()}</div>
-        )}
-        <div style={{ flex: 1 }}>
-          <p style={{ fontWeight: '600', margin: 0, color: textColor }}>{name}</p>
-          <p style={{ fontSize: '0.8rem', color: status.color, margin: 0 }}>{status.text}</p>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '0.85rem', marginBottom: '1rem', padding: '0.9rem 1.4rem', background: headerBg, backdropFilter: 'blur(14px)', WebkitBackdropFilter: 'blur(14px)', borderRadius: '16px', border: `1px solid ${border}`, boxShadow: panelShadow }}>
+        <div style={{ position: 'relative', flexShrink: 0 }}>
+          {otherUser?.avatar_url ? (
+            <img src={otherUser.avatar_url} alt={name} style={{ width: '44px', height: '44px', borderRadius: '50%', objectFit: 'cover', display: 'block' }} />
+          ) : (
+            <div style={{ width: '44px', height: '44px', borderRadius: '50%', background: `linear-gradient(135deg, ${color}, ${color}cc)`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: '700', color: 'white', fontSize: '1.05rem' }}>{name[0]?.toUpperCase()}</div>
+          )}
+          {isOtherOnline && (
+            <span style={{ position: 'absolute', bottom: '-1px', right: '-1px', width: '13px', height: '13px', borderRadius: '50%', background: '#4caf50', border: `2.5px solid ${isLight ? '#fdfdff' : '#15152a'}`, boxShadow: '0 0 0 1px rgba(76,175,80,0.3)' }} />
+          )}
+        </div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <p style={{ fontWeight: '700', margin: 0, color: textColor, fontSize: '1.02rem', letterSpacing: '-0.01em' }}>{name}</p>
+          <p style={{ fontSize: '0.8rem', color: status.color, margin: '0.1rem 0 0', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+            {isOtherTyping ? (
+              <span style={{ display: 'inline-flex', gap: '2px' }}>
+                <span style={{ width: '4px', height: '4px', borderRadius: '50%', background: '#a78bfa', animation: 'bounce 1s infinite' }} />
+                <span style={{ width: '4px', height: '4px', borderRadius: '50%', background: '#a78bfa', animation: 'bounce 1s infinite 0.2s' }} />
+                <span style={{ width: '4px', height: '4px', borderRadius: '50%', background: '#a78bfa', animation: 'bounce 1s infinite 0.4s' }} />
+              </span>
+            ) : isOtherOnline ? (
+              <span style={{ width: '7px', height: '7px', borderRadius: '50%', background: '#4caf50', flexShrink: 0 }} />
+            ) : null}
+            {status.text}
+          </p>
         </div>
         <button
           onClick={toggleSearch}
-          style={{ background: searchOpen ? 'rgba(108,99,255,0.2)' : inputBg, border: searchOpen ? '1px solid rgba(108,99,255,0.4)' : `1px solid ${border}`, color: searchOpen ? '#a78bfa' : mutedColor, borderRadius: '8px', padding: '0.5rem 0.75rem', cursor: 'pointer', fontSize: '0.9rem', fontFamily: 'Inter, sans-serif' }}
+          className="icon-btn"
+          style={{ background: searchOpen ? 'rgba(108,99,255,0.18)' : 'transparent', border: searchOpen ? '1px solid rgba(108,99,255,0.4)' : `1px solid ${border}`, color: searchOpen ? '#a78bfa' : mutedColor, borderRadius: '10px', padding: '0.55rem 0.75rem', cursor: 'pointer', fontSize: '0.95rem', fontFamily: 'Inter, sans-serif' }}
           title="Search messages"
         >
           🔍
@@ -375,7 +408,7 @@ export default function Chat({ theme }) {
 
       {/* Search panel */}
       {searchOpen && (
-        <div style={{ marginBottom: '1rem', background: headerBg, border: `1px solid ${border}`, borderRadius: '12px', padding: '0.75rem 1rem', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+        <div style={{ marginBottom: '1rem', background: headerBg, backdropFilter: 'blur(14px)', WebkitBackdropFilter: 'blur(14px)', border: `1px solid ${border}`, borderRadius: '16px', padding: '0.85rem 1.1rem', display: 'flex', flexDirection: 'column', gap: '0.75rem', boxShadow: panelShadow, animation: 'slideDown 0.2s ease' }}>
           <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
             <input
               ref={searchInputRef}
@@ -383,7 +416,7 @@ export default function Chat({ theme }) {
               placeholder="Search messages..."
               value={searchQuery}
               onChange={e => handleSearch(e.target.value)}
-              style={{ flex: 1, padding: '0.6rem 1rem', borderRadius: '8px', border: `1px solid ${inputBorder}`, background: inputBg, color: textColor, fontFamily: 'Inter, sans-serif', fontSize: '0.9rem', outline: 'none' }}
+              style={{ flex: 1, padding: '0.65rem 1rem', borderRadius: '10px', border: `1px solid ${inputBorder}`, background: inputBg, color: textColor, fontFamily: 'Inter, sans-serif', fontSize: '0.9rem', outline: 'none' }}
             />
             {searchQuery && (
               <button onClick={() => handleSearch('')} style={{ background: 'none', border: 'none', color: mutedColor, cursor: 'pointer', fontSize: '1rem' }}>✕</button>
@@ -397,11 +430,11 @@ export default function Chat({ theme }) {
               {searchResults.length === 0 ? (
                 <p style={{ color: mutedColor, fontSize: '0.85rem' }}>No messages found for "{searchQuery}"</p>
               ) : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', maxHeight: '200px', overflowY: 'auto' }}>
+                <div className="thin-scroll" style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', maxHeight: '200px', overflowY: 'auto' }}>
                   {searchResults.map(msg => {
                     const isMine = msg.sender_id === currentUser?.id
                     return (
-                      <button key={msg.id} onClick={() => jumpToMessage(msg.id)} style={{ background: inputBg, border: `1px solid ${border}`, borderRadius: '8px', padding: '0.5rem 0.75rem', cursor: 'pointer', textAlign: 'left', display: 'flex', flexDirection: 'column', gap: '0.2rem', fontFamily: 'Inter, sans-serif' }}>
+                      <button key={msg.id} onClick={() => jumpToMessage(msg.id)} className="search-result-btn" style={{ background: inputBg, border: `1px solid ${border}`, borderRadius: '10px', padding: '0.5rem 0.75rem', cursor: 'pointer', textAlign: 'left', display: 'flex', flexDirection: 'column', gap: '0.2rem', fontFamily: 'Inter, sans-serif' }}>
                         <span style={{ fontSize: '0.7rem', color: mutedColor }}>{isMine ? 'You' : name} · {new Date(msg.created_at).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
                         <span style={{ fontSize: '0.85rem', color: textColor }}>
                           {msg.content.split(new RegExp(`(${searchQuery})`, 'gi')).map((part, i) =>
@@ -421,14 +454,15 @@ export default function Chat({ theme }) {
       )}
 
       {/* Messages */}
-      <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '0.75rem', marginBottom: '1rem', padding: '0.5rem' }}>
+      <div className="thin-scroll" style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '0.4rem', marginBottom: '1rem', padding: '0.5rem 0.25rem' }}>
         {messages.length === 0 && (
-          <div style={{ textAlign: 'center', color: mutedColor, marginTop: '3rem' }}>
-            <p style={{ fontSize: '2rem', marginBottom: '0.5rem' }}>👋</p>
-            <p>Say hi to {name}!</p>
+          <div style={{ textAlign: 'center', color: mutedColor, margin: 'auto 0', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.5rem' }}>
+            <div style={{ width: '64px', height: '64px', borderRadius: '50%', background: 'linear-gradient(135deg, rgba(108,99,255,0.15), rgba(167,139,250,0.1))', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.8rem', marginBottom: '0.25rem' }}>👋</div>
+            <p style={{ color: textColor, fontWeight: '600', margin: 0 }}>Say hi to {name}!</p>
+            <p style={{ margin: 0, fontSize: '0.85rem' }}>This is the start of your conversation.</p>
           </div>
         )}
-        {messages.map(msg => {
+        {messages.map((msg, idx) => {
           const isMine = msg.sender_id === currentUser?.id
           const isTemp = msg.id?.toString().startsWith('temp-')
           const isHovered = hoveredMsg === msg.id
@@ -438,84 +472,105 @@ export default function Chat({ theme }) {
           const isHighlighted = highlightedMsgId === msg.id
           const isEditing = editingMsgId === msg.id
           const isImage = msg.content?.startsWith('[image]')
+          const prevMsg = messages[idx - 1]
+          const showDateDivider = !prevMsg || new Date(prevMsg.created_at).toDateString() !== new Date(msg.created_at).toDateString()
           return (
-            <div
-              key={msg.id}
-              ref={el => { if (el) msgRefs.current[msg.id] = el }}
-              style={{ alignSelf: isMine ? 'flex-end' : 'flex-start', display: 'flex', flexDirection: 'column', alignItems: isMine ? 'flex-end' : 'flex-start', maxWidth: '75%', position: 'relative', transition: 'all 0.3s', background: isHighlighted ? 'rgba(245,158,11,0.1)' : 'transparent', borderRadius: '12px', padding: isHighlighted ? '0.25rem' : '0' }}
-              onMouseEnter={() => setHoveredMsg(msg.id)} onMouseLeave={() => setHoveredMsg(null)}
-            >
-              <div style={{ display: 'flex', flexDirection: isMine ? 'row-reverse' : 'row', alignItems: 'center', gap: '0.5rem' }}>
-                <div style={{ display: 'flex', flexDirection: 'column' }}>
-                  {msg.reply_content && (
-                    <div style={{ background: 'rgba(255,255,255,0.06)', borderLeft: '3px solid #6c63ff', borderRadius: '6px', padding: '0.3rem 0.6rem', marginBottom: '0.25rem', fontSize: '0.75rem', color: mutedColor, maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      ↩ {truncate(msg.reply_content)}
-                    </div>
+            <div key={msg.id}>
+              {showDateDivider && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', margin: '0.75rem 0' }}>
+                  <div style={{ flex: 1, height: '1px', background: border }} />
+                  <span style={{ fontSize: '0.72rem', color: mutedColor, fontWeight: '600', whiteSpace: 'nowrap' }}>{formatDateDivider(msg.created_at)}</span>
+                  <div style={{ flex: 1, height: '1px', background: border }} />
+                </div>
+              )}
+              <div
+                ref={el => { if (el) msgRefs.current[msg.id] = el }}
+                style={{ alignSelf: isMine ? 'flex-end' : 'flex-start', display: 'flex', flexDirection: 'column', alignItems: isMine ? 'flex-end' : 'flex-start', maxWidth: '75%', marginLeft: isMine ? 'auto' : 0, position: 'relative', transition: 'background 0.3s', background: isHighlighted ? 'rgba(245,158,11,0.1)' : 'transparent', borderRadius: '12px', padding: isHighlighted ? '0.25rem' : '0', animation: isTemp ? 'none' : 'fadeInUp 0.25s ease' }}
+                onMouseEnter={() => setHoveredMsg(msg.id)} onMouseLeave={() => setHoveredMsg(null)}
+              >
+                <div style={{ display: 'flex', flexDirection: isMine ? 'row-reverse' : 'row', alignItems: 'center', gap: '0.5rem' }}>
+                  <div style={{ display: 'flex', flexDirection: 'column' }}>
+                    {msg.reply_content && (
+                      <div style={{ background: isLight ? 'rgba(108,99,255,0.06)' : 'rgba(255,255,255,0.06)', borderLeft: '3px solid #6c63ff', borderRadius: '6px', padding: '0.3rem 0.6rem', marginBottom: '0.3rem', fontSize: '0.75rem', color: mutedColor, maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        ↩ {truncate(msg.reply_content)}
+                      </div>
+                    )}
+                    {isEditing ? (
+                      <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center' }}>
+                        <input
+                          type="text"
+                          value={editContent}
+                          onChange={e => setEditContent(e.target.value)}
+                          onKeyDown={e => { if (e.key === 'Enter') saveEdit(msg.id); if (e.key === 'Escape') cancelEdit() }}
+                          autoFocus
+                          style={{ padding: '0.5rem 0.8rem', borderRadius: '14px', border: `1px solid ${inputBorder}`, background: inputBg, color: textColor, fontFamily: 'Inter, sans-serif', fontSize: '0.9rem', outline: 'none', minWidth: '180px' }}
+                        />
+                        <button onClick={() => saveEdit(msg.id)} style={{ background: 'rgba(16,185,129,0.15)', border: '1px solid rgba(16,185,129,0.3)', color: '#10b981', borderRadius: '8px', padding: '0.3rem 0.5rem', cursor: 'pointer', fontSize: '0.8rem' }}>✓</button>
+                        <button onClick={cancelEdit} style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.2)', color: '#ef4444', borderRadius: '8px', padding: '0.3rem 0.5rem', cursor: 'pointer', fontSize: '0.8rem' }}>✕</button>
+                      </div>
+                    ) : (
+                      <div style={{
+                        background: isImage ? 'transparent' : isMine ? 'linear-gradient(135deg, #6c63ff, #a78bfa)' : bubbleOther,
+                        color: isMine ? 'white' : textColor,
+                        padding: isImage ? '0' : '0.65rem 1.05rem',
+                        borderRadius: isMine ? '18px 18px 4px 18px' : '18px 18px 18px 4px',
+                        fontSize: '0.95rem',
+                        lineHeight: 1.45,
+                        opacity: isTemp ? 0.65 : 1,
+                        outline: isHighlighted ? '2px solid #f59e0b' : 'none',
+                        boxShadow: isImage ? 'none' : isMine ? '0 2px 10px rgba(108,99,255,0.25)' : isLight ? '0 1px 4px rgba(17,17,17,0.06)' : '0 1px 4px rgba(0,0,0,0.2)',
+                        border: !isImage && !isMine ? `1px solid ${border}` : 'none'
+                      }}>
+                        {renderMessage(msg)}
+                      </div>
+                    )}
+                    {msg.edited_at && !isTemp && !isEditing && (
+                      <span style={{ fontSize: '0.65rem', color: mutedColor, marginTop: '0.15rem', alignSelf: isMine ? 'flex-end' : 'flex-start' }}>(edited)</span>
+                    )}
+                  </div>
+                  {isHovered && !isEditing && !isTemp && (
+                    <span style={{ fontSize: '0.7rem', color: mutedColor, whiteSpace: 'nowrap', flexShrink: 0 }}>
+                      {formatTimestamp(msg.created_at)}
+                    </span>
                   )}
-                  {isEditing ? (
-                    <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center' }}>
-                      <input
-                        type="text"
-                        value={editContent}
-                        onChange={e => setEditContent(e.target.value)}
-                        onKeyDown={e => { if (e.key === 'Enter') saveEdit(msg.id); if (e.key === 'Escape') cancelEdit() }}
-                        autoFocus
-                        style={{ padding: '0.5rem 0.8rem', borderRadius: '14px', border: `1px solid ${inputBorder}`, background: inputBg, color: textColor, fontFamily: 'Inter, sans-serif', fontSize: '0.9rem', outline: 'none', minWidth: '180px' }}
-                      />
-                      <button onClick={() => saveEdit(msg.id)} style={{ background: 'rgba(16,185,129,0.15)', border: '1px solid rgba(16,185,129,0.3)', color: '#10b981', borderRadius: '6px', padding: '0.3rem 0.5rem', cursor: 'pointer', fontSize: '0.8rem' }}>✓</button>
-                      <button onClick={cancelEdit} style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.2)', color: '#ef4444', borderRadius: '6px', padding: '0.3rem 0.5rem', cursor: 'pointer', fontSize: '0.8rem' }}>✕</button>
+                  {!isTemp && isHovered && !isEditing && (
+                    <div style={{ display: 'flex', gap: '0.2rem', alignItems: 'center', background: isLight ? 'rgba(255,255,255,0.95)' : 'rgba(30,30,46,0.9)', border: `1px solid ${border}`, borderRadius: '10px', padding: '0.2rem', boxShadow: panelShadow, animation: 'fadeIn 0.15s ease' }}>
+                      <button onClick={() => { setReplyTo(msg); inputRef.current?.focus() }} className="msg-action-btn" style={{ background: 'transparent', border: 'none', color: textColor, borderRadius: '6px', padding: '0.3rem 0.45rem', cursor: 'pointer', fontSize: '0.85rem' }}>↩</button>
+                      <div style={{ position: 'relative' }}>
+                        <button onClick={(e) => { e.stopPropagation(); setEmojiPickerMsg(emojiPickerMsg === msg.id ? null : msg.id) }} className="msg-action-btn" style={{ background: 'transparent', border: 'none', color: textColor, borderRadius: '6px', padding: '0.3rem 0.45rem', cursor: 'pointer', fontSize: '0.85rem' }}>😊</button>
+                        {emojiPickerMsg === msg.id && (
+                          <div onClick={e => e.stopPropagation()} style={{ position: 'absolute', bottom: '110%', [isMine ? 'right' : 'left']: 0, background: isLight ? '#ffffff' : '#1e1e2e', border: `1px solid ${border}`, borderRadius: '14px', padding: '0.5rem', display: 'flex', gap: '0.25rem', zIndex: 50, boxShadow: '0 8px 30px rgba(0,0,0,0.35)', animation: 'fadeIn 0.15s ease' }}>
+                            {EMOJI_OPTIONS.map(emoji => (
+                              <button key={emoji} onClick={() => toggleReaction(msg.id, emoji)} className="emoji-option-btn" style={{ background: (reactions[msg.id] || []).some(r => r.emoji === emoji && r.user_id === currentUser?.id) ? 'rgba(108,99,255,0.3)' : 'transparent', border: 'none', borderRadius: '8px', padding: '0.3rem', cursor: 'pointer', fontSize: '1.2rem' }}>{emoji}</button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                      {isMine && !isImage && <button onClick={() => startEdit(msg)} title="Edit" className="msg-action-btn" style={{ background: 'transparent', border: 'none', color: textColor, borderRadius: '6px', padding: '0.3rem 0.45rem', cursor: 'pointer', fontSize: '0.85rem' }}>✏️</button>}
+                      {isMine && <button onClick={() => deleteMessage(msg.id)} className="msg-action-btn" style={{ background: 'transparent', border: 'none', color: '#ef4444', borderRadius: '6px', padding: '0.3rem 0.5rem', cursor: 'pointer', fontSize: '0.8rem' }}>🗑️</button>}
                     </div>
-                  ) : (
-                    <div style={{ background: isImage ? 'transparent' : isMine ? 'linear-gradient(135deg, #6c63ff, #a78bfa)' : bubbleOther, color: isMine ? 'white' : textColor, padding: isImage ? '0' : '0.65rem 1rem', borderRadius: isMine ? '18px 18px 4px 18px' : '18px 18px 18px 4px', fontSize: '0.95rem', lineHeight: 1.4, opacity: isTemp ? 0.7 : 1, outline: isHighlighted ? '2px solid #f59e0b' : 'none' }}>
-                      {renderMessage(msg)}
-                    </div>
-                  )}
-                  {msg.edited_at && !isTemp && !isEditing && (
-                    <span style={{ fontSize: '0.65rem', color: mutedColor, marginTop: '0.15rem', alignSelf: isMine ? 'flex-end' : 'flex-start' }}>(edited)</span>
                   )}
                 </div>
-                {isHovered && !isEditing && !isTemp && (
-                  <span style={{ fontSize: '0.7rem', color: mutedColor, whiteSpace: 'nowrap', flexShrink: 0 }}>
-                    {formatTimestamp(msg.created_at)}
-                  </span>
+                {isMine && !isTemp && (
+                  <p style={{ fontSize: '0.65rem', color: isRead ? '#a78bfa' : mutedColor, marginTop: '0.25rem', textAlign: 'right', fontWeight: isRead ? '600' : '400' }}>
+                    {isRead ? '✓✓ Read' : '✓ Sent'}
+                  </p>
                 )}
-                {!isTemp && isHovered && !isEditing && (
-                  <div style={{ display: 'flex', gap: '0.25rem', alignItems: 'center' }}>
-                    <button onClick={() => { setReplyTo(msg); inputRef.current?.focus() }} style={{ background: 'rgba(255,255,255,0.08)', border: `1px solid rgba(255,255,255,0.12)`, color: textColor, borderRadius: '6px', padding: '0.25rem 0.4rem', cursor: 'pointer', fontSize: '0.8rem' }}>↩</button>
-                    <div style={{ position: 'relative' }}>
-                      <button onClick={(e) => { e.stopPropagation(); setEmojiPickerMsg(emojiPickerMsg === msg.id ? null : msg.id) }} style={{ background: 'rgba(255,255,255,0.08)', border: `1px solid rgba(255,255,255,0.12)`, color: textColor, borderRadius: '6px', padding: '0.25rem 0.4rem', cursor: 'pointer', fontSize: '0.8rem' }}>😊</button>
-                      {emojiPickerMsg === msg.id && (
-                        <div onClick={e => e.stopPropagation()} style={{ position: 'absolute', bottom: '110%', [isMine ? 'right' : 'left']: 0, background: isLight ? '#f0f0f7' : '#1e1e2e', border: `1px solid ${border}`, borderRadius: '12px', padding: '0.5rem', display: 'flex', gap: '0.25rem', zIndex: 50, boxShadow: '0 4px 20px rgba(0,0,0,0.4)' }}>
-                          {EMOJI_OPTIONS.map(emoji => (
-                            <button key={emoji} onClick={() => toggleReaction(msg.id, emoji)} style={{ background: (reactions[msg.id] || []).some(r => r.emoji === emoji && r.user_id === currentUser?.id) ? 'rgba(108,99,255,0.3)' : 'transparent', border: 'none', borderRadius: '6px', padding: '0.3rem', cursor: 'pointer', fontSize: '1.2rem' }}>{emoji}</button>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                    {isMine && !isImage && <button onClick={() => startEdit(msg)} title="Edit" style={{ background: 'rgba(255,255,255,0.08)', border: `1px solid rgba(255,255,255,0.12)`, color: textColor, borderRadius: '6px', padding: '0.25rem 0.4rem', cursor: 'pointer', fontSize: '0.8rem' }}>✏️</button>}
-                    {isMine && <button onClick={() => deleteMessage(msg.id)} style={{ background: 'rgba(239,68,68,0.15)', border: '1px solid rgba(239,68,68,0.2)', color: '#ef4444', borderRadius: '6px', padding: '0.25rem 0.5rem', cursor: 'pointer', fontSize: '0.75rem' }}>🗑️</button>}
+                {hasReactions && (
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.25rem', marginTop: '0.35rem' }}>
+                    {Object.entries(groupedRxns).map(([emoji, userIds]) => (
+                      <button key={emoji} onClick={() => toggleReaction(msg.id, emoji)} style={{ background: userIds.includes(currentUser?.id) ? 'rgba(108,99,255,0.22)' : isLight ? 'rgba(0,0,0,0.05)' : 'rgba(255,255,255,0.07)', border: userIds.includes(currentUser?.id) ? '1px solid rgba(108,99,255,0.4)' : `1px solid ${border}`, borderRadius: '100px', padding: '0.15rem 0.55rem', cursor: 'pointer', fontSize: '0.8rem', color: textColor, display: 'flex', alignItems: 'center', gap: '0.25rem', boxShadow: isLight ? '0 1px 3px rgba(17,17,17,0.05)' : 'none' }}>
+                        {emoji} <span style={{ fontSize: '0.7rem', opacity: 0.8 }}>{userIds.length}</span>
+                      </button>
+                    ))}
                   </div>
                 )}
               </div>
-              {isMine && !isTemp && (
-                <p style={{ fontSize: '0.65rem', color: isRead ? '#a78bfa' : mutedColor, marginTop: '0.2rem', textAlign: 'right' }}>
-                  {isRead ? '✓✓ Read' : '✓ Sent'}
-                </p>
-              )}
-              {hasReactions && (
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.25rem', marginTop: '0.3rem' }}>
-                  {Object.entries(groupedRxns).map(([emoji, userIds]) => (
-                    <button key={emoji} onClick={() => toggleReaction(msg.id, emoji)} style={{ background: userIds.includes(currentUser?.id) ? 'rgba(108,99,255,0.25)' : isLight ? 'rgba(0,0,0,0.05)' : 'rgba(255,255,255,0.07)', border: userIds.includes(currentUser?.id) ? '1px solid rgba(108,99,255,0.4)' : `1px solid ${border}`, borderRadius: '100px', padding: '0.15rem 0.5rem', cursor: 'pointer', fontSize: '0.8rem', color: textColor, display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
-                      {emoji} <span style={{ fontSize: '0.7rem', opacity: 0.8 }}>{userIds.length}</span>
-                    </button>
-                  ))}
-                </div>
-              )}
             </div>
           )
         })}
         {isOtherTyping && (
-          <div style={{ alignSelf: 'flex-start', background: bubbleOther, padding: '0.65rem 1rem', borderRadius: '18px 18px 18px 4px', display: 'flex', gap: '4px', alignItems: 'center' }}>
+          <div style={{ alignSelf: 'flex-start', background: bubbleOther, border: `1px solid ${border}`, padding: '0.7rem 1.05rem', borderRadius: '18px 18px 18px 4px', display: 'flex', gap: '4px', alignItems: 'center', boxShadow: isLight ? '0 1px 4px rgba(17,17,17,0.06)' : '0 1px 4px rgba(0,0,0,0.2)', animation: 'fadeInUp 0.2s ease' }}>
             <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#a78bfa', animation: 'bounce 1s infinite' }} />
             <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#a78bfa', animation: 'bounce 1s infinite 0.2s' }} />
             <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#a78bfa', animation: 'bounce 1s infinite 0.4s' }} />
@@ -525,26 +580,36 @@ export default function Chat({ theme }) {
       </div>
 
       {replyTo && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.5rem 1rem', background: 'rgba(108,99,255,0.08)', borderRadius: '10px', marginBottom: '0.5rem', border: '1px solid rgba(108,99,255,0.2)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.6rem 1.1rem', background: isLight ? 'rgba(108,99,255,0.07)' : 'rgba(108,99,255,0.1)', borderRadius: '12px', marginBottom: '0.6rem', border: '1px solid rgba(108,99,255,0.25)', animation: 'slideDown 0.2s ease' }}>
           <span style={{ color: '#a78bfa', fontSize: '0.85rem' }}>↩ Replying to: {truncate(replyTo.content)}</span>
           <button onClick={() => setReplyTo(null)} style={{ background: 'none', border: 'none', color: mutedColor, cursor: 'pointer', marginLeft: 'auto', fontSize: '1rem' }}>✕</button>
         </div>
       )}
 
-      <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', position: 'relative' }}>
+      <div className={`chat-input-bar ${inputFocused ? 'focused' : ''}`} style={{ display: 'flex', gap: '0.6rem', alignItems: 'center', position: 'relative', background: inputBg, border: `1px solid ${inputBorder}`, borderRadius: '16px', padding: '0.5rem', boxShadow: panelShadow }}>
         {showMentions && filteredMentions.length > 0 && (
-          <div style={{ position: 'absolute', bottom: '100%', left: 0, marginBottom: '0.5rem', background: isLight ? '#f0f0f7' : '#1e1e2e', border: `1px solid ${border}`, borderRadius: '10px', padding: '0.4rem', boxShadow: '0 4px 20px rgba(0,0,0,0.4)', zIndex: 60, minWidth: '160px' }}>
+          <div style={{ position: 'absolute', bottom: '100%', left: 0, marginBottom: '0.5rem', background: isLight ? '#ffffff' : '#1e1e2e', border: `1px solid ${border}`, borderRadius: '12px', padding: '0.4rem', boxShadow: '0 8px 30px rgba(0,0,0,0.35)', zIndex: 60, minWidth: '160px', animation: 'fadeIn 0.15s ease' }}>
             {filteredMentions.map(u => (
-              <button key={u} onClick={() => insertMention(u)} style={{ display: 'block', width: '100%', textAlign: 'left', background: 'transparent', border: 'none', color: textColor, padding: '0.4rem 0.75rem', cursor: 'pointer', fontFamily: 'Inter, sans-serif', fontSize: '0.85rem', borderRadius: '6px' }}>@{u}</button>
+              <button key={u} onClick={() => insertMention(u)} style={{ display: 'block', width: '100%', textAlign: 'left', background: 'transparent', border: 'none', color: textColor, padding: '0.4rem 0.75rem', cursor: 'pointer', fontFamily: 'Inter, sans-serif', fontSize: '0.85rem', borderRadius: '8px' }}>@{u}</button>
             ))}
           </div>
         )}
         <input type="file" accept="image/*" ref={fileInputRef} onChange={sendImage} style={{ display: 'none' }} />
-        <button onClick={() => fileInputRef.current.click()} disabled={uploading} style={{ padding: '0.85rem', background: inputBg, color: uploading ? mutedColor : '#a78bfa', border: `1px solid ${inputBorder}`, borderRadius: '10px', cursor: uploading ? 'default' : 'pointer', fontSize: '1.2rem', lineHeight: 1 }}>
+        <button onClick={() => fileInputRef.current.click()} disabled={uploading} className="attach-btn" style={{ width: '42px', height: '42px', flexShrink: 0, background: isLight ? 'rgba(108,99,255,0.08)' : 'rgba(108,99,255,0.12)', color: uploading ? mutedColor : '#a78bfa', border: 'none', borderRadius: '12px', cursor: uploading ? 'default' : 'pointer', fontSize: '1.15rem', lineHeight: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           {uploading ? '⏳' : '📷'}
         </button>
-        <input ref={inputRef} type="text" placeholder={replyTo ? `Replying to ${truncate(replyTo.content, 20)}...` : 'Type a message...'} value={newMessage} onChange={handleTyping} onKeyDown={e => e.key === 'Enter' && sendMessage()} style={{ flex: 1, padding: '0.85rem 1rem', borderRadius: '10px', border: `1px solid ${inputBorder}`, background: inputBg, color: textColor, fontFamily: 'Inter, sans-serif', fontSize: '0.95rem', outline: 'none' }} />
-        <button onClick={sendMessage} style={{ padding: '0.85rem 1.5rem', background: 'linear-gradient(135deg, #6c63ff, #a78bfa)', color: 'white', border: 'none', borderRadius: '10px', cursor: 'pointer', fontFamily: 'Inter, sans-serif', fontWeight: '600' }}>Send</button>
+        <input
+          ref={inputRef}
+          type="text"
+          placeholder={replyTo ? `Replying to ${truncate(replyTo.content, 20)}...` : 'Type a message...'}
+          value={newMessage}
+          onChange={handleTyping}
+          onKeyDown={e => e.key === 'Enter' && sendMessage()}
+          onFocus={() => setInputFocused(true)}
+          onBlur={() => setInputFocused(false)}
+          style={{ flex: 1, padding: '0.75rem 0.4rem', border: 'none', background: 'transparent', color: textColor, fontFamily: 'Inter, sans-serif', fontSize: '0.95rem', outline: 'none' }}
+        />
+        <button onClick={sendMessage} disabled={!newMessage.trim()} className="send-btn" style={{ padding: '0.7rem 1.4rem', background: newMessage.trim() ? 'linear-gradient(135deg, #6c63ff, #a78bfa)' : isLight ? 'rgba(0,0,0,0.08)' : 'rgba(255,255,255,0.08)', color: newMessage.trim() ? 'white' : mutedColor, border: 'none', borderRadius: '12px', cursor: newMessage.trim() ? 'pointer' : 'default', fontFamily: 'Inter, sans-serif', fontWeight: '600', fontSize: '0.9rem', transition: 'background 0.15s, transform 0.1s' }}>Send</button>
       </div>
 
       <style>{`
@@ -552,6 +617,28 @@ export default function Chat({ theme }) {
           0%, 60%, 100% { transform: translateY(0); }
           30% { transform: translateY(-6px); }
         }
+        @keyframes fadeInUp {
+          from { opacity: 0; transform: translateY(6px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
+        @keyframes fadeIn {
+          from { opacity: 0; }
+          to { opacity: 1; }
+        }
+        @keyframes slideDown {
+          from { opacity: 0; transform: translateY(-6px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
+        .thin-scroll::-webkit-scrollbar { width: 6px; }
+        .thin-scroll::-webkit-scrollbar-track { background: transparent; }
+        .thin-scroll::-webkit-scrollbar-thumb { background: ${isLight ? 'rgba(0,0,0,0.15)' : 'rgba(255,255,255,0.15)'}; border-radius: 10px; }
+        .chat-input-bar.focused { box-shadow: 0 0 0 2px rgba(108,99,255,0.35), ${panelShadow}; border-color: rgba(108,99,255,0.4); }
+        .icon-btn:hover { background: rgba(108,99,255,0.12) !important; color: #a78bfa !important; }
+        .attach-btn:hover:not(:disabled) { background: rgba(108,99,255,0.18) !important; }
+        .send-btn:not(:disabled):hover { transform: translateY(-1px); }
+        .msg-action-btn:hover { background: rgba(108,99,255,0.15) !important; }
+        .emoji-option-btn:hover { background: rgba(108,99,255,0.18) !important; transform: scale(1.1); }
+        .search-result-btn:hover { border-color: rgba(108,99,255,0.35) !important; }
       `}</style>
     </div>
   )
