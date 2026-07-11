@@ -49,47 +49,29 @@ const GameSearch = ({ value, onChange, inputStyle, textColor, border, inputBg, i
     setResults([])
   }
 
-  const clear = () => {
-    setQuery('')
-    onChange('')
-    setResults([])
-  }
-
   return (
     <div ref={wrapperRef} style={{ position: 'relative' }}>
       <div style={{ position: 'relative' }}>
-        <input
-          type="text"
-          placeholder="Search any game..."
-          value={query}
-          onChange={handleChange}
-          onFocus={() => query && setShowDropdown(true)}
-          style={{ ...inputStyle, paddingRight: query ? '2rem' : '1rem' }}
-        />
-        {query && (
-          <button onClick={clear} style={{ position: 'absolute', right: '0.5rem', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: mutedColor, cursor: 'pointer', fontSize: '0.9rem' }}>✕</button>
-        )}
+        <input type="text" placeholder="Search any game..." value={query} onChange={handleChange} onFocus={() => query && setShowDropdown(true)} style={{ ...inputStyle, paddingRight: query ? '2rem' : '1rem' }} />
+        {query && <button onClick={() => { setQuery(''); onChange(''); setResults([]) }} style={{ position: 'absolute', right: '0.5rem', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: mutedColor, cursor: 'pointer', fontSize: '0.9rem' }}>✕</button>}
       </div>
-      {showDropdown && (query) && (
+      {showDropdown && query && (
         <div style={{ position: 'absolute', top: '110%', left: 0, right: 0, background: inputBg === 'rgba(0,0,0,0.04)' ? '#f0f0f7' : '#1a1a2e', border: `1px solid ${border}`, borderRadius: '10px', zIndex: 100, boxShadow: '0 4px 20px rgba(0,0,0,0.3)', overflow: 'hidden' }}>
           {searching ? (
             <p style={{ padding: '0.75rem 1rem', color: mutedColor, fontSize: '0.85rem' }}>Searching...</p>
           ) : results.length === 0 ? (
             <p style={{ padding: '0.75rem 1rem', color: mutedColor, fontSize: '0.85rem' }}>No games found</p>
-          ) : (
-            results.map(game => (
-              <div key={game.id} onClick={() => select(game)} style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.6rem 1rem', cursor: 'pointer', borderBottom: `1px solid ${border}` }}
-                onMouseEnter={e => e.currentTarget.style.background = 'rgba(108,99,255,0.1)'}
-                onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
-              >
-                {game.background_image && <img src={game.background_image} alt="" style={{ width: '36px', height: '36px', borderRadius: '6px', objectFit: 'cover', flexShrink: 0 }} />}
-                <div>
-                  <p style={{ fontSize: '0.88rem', color: textColor, fontWeight: '500', margin: 0 }}>{game.name}</p>
-                  {game.released && <p style={{ fontSize: '0.72rem', color: mutedColor, margin: 0 }}>{new Date(game.released).getFullYear()}</p>}
-                </div>
+          ) : results.map(game => (
+            <div key={game.id} onClick={() => select(game)} style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.6rem 1rem', cursor: 'pointer', borderBottom: `1px solid ${border}` }}
+              onMouseEnter={e => e.currentTarget.style.background = 'rgba(108,99,255,0.1)'}
+              onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+              {game.background_image && <img src={game.background_image} alt="" style={{ width: '36px', height: '36px', borderRadius: '6px', objectFit: 'cover', flexShrink: 0 }} />}
+              <div>
+                <p style={{ fontSize: '0.88rem', color: textColor, fontWeight: '500', margin: 0 }}>{game.name}</p>
+                {game.released && <p style={{ fontSize: '0.72rem', color: mutedColor, margin: 0 }}>{new Date(game.released).getFullYear()}</p>}
               </div>
-            ))
-          )}
+            </div>
+          ))}
         </div>
       )}
     </div>
@@ -106,7 +88,8 @@ export default function LFG({ theme }) {
   const [expandedPost, setExpandedPost] = useState(null)
   const [myRequestMessage, setMyRequestMessage] = useState('')
   const [filters, setFilters] = useState({ game: '', region: '', mode: '', status: 'open' })
-  const [newPost, setNewPost] = useState({ game: '', mode: 'Any', rank: '', region: 'Any', mic_required: false, age_range: 'Any', slots: 1 })
+  const [newPost, setNewPost] = useState({ game: '', mode: 'Any', rank: '', region: 'Any', mic_required: false, age_range: 'Any', slots: 1, description: '' })
+  const [creatingGroup, setCreatingGroup] = useState(null)
   const navigate = useNavigate()
 
   const isLight = theme === 'light'
@@ -195,6 +178,7 @@ export default function LFG({ theme }) {
 
   const createPost = async () => {
     if (!newPost.game) return alert('Please select a game')
+    if (!newPost.description.trim()) return alert('Please add a description')
     const { error } = await supabase.from('lfg_posts').insert({
       user_id: currentUser.id,
       game: newPost.game,
@@ -204,10 +188,11 @@ export default function LFG({ theme }) {
       mic_required: newPost.mic_required,
       age_range: newPost.age_range,
       slots: newPost.slots,
+      description: newPost.description.trim(),
       status: 'open'
     })
     if (error) return alert(error.message)
-    setNewPost({ game: '', mode: 'Any', rank: '', region: 'Any', mic_required: false, age_range: 'Any', slots: 1 })
+    setNewPost({ game: '', mode: 'Any', rank: '', region: 'Any', mic_required: false, age_range: 'Any', slots: 1, description: '' })
     setShowCreate(false)
   }
 
@@ -220,16 +205,75 @@ export default function LFG({ theme }) {
 
   const respondToRequest = async (requestId, postId, status) => {
     await supabase.from('lfg_requests').update({ status }).eq('id', requestId)
+
     if (status === 'accepted') {
       const post = posts.find(p => p.id === postId)
       const postRequests = requests[postId] || []
-      const accepted = postRequests.filter(r => r.status === 'accepted' || r.id === requestId)
-      if (post && accepted.length >= post.slots) {
-        await supabase.from('lfg_posts').update({ status: 'full' }).eq('id', postId)
-      }
+      const nowAccepted = postRequests.map(r => r.id === requestId ? { ...r, status: 'accepted' } : r).filter(r => r.status === 'accepted')
+
+      // Notify the accepted user
       const req = postRequests.find(r => r.id === requestId)
       if (req) {
-        await supabase.from('notifications').insert({ user_id: req.user_id, type: 'lfg_accepted', content: `✅ Your LFG request for ${post?.game} was accepted!`, read: false })
+        await supabase.from('notifications').insert({
+          user_id: req.user_id,
+          type: 'lfg_accepted',
+          content: `✅ Your LFG request for "${post?.game}" was accepted! Check the LFG page.`,
+          read: false
+        })
+      }
+
+      // If all slots are filled, create a group and notify everyone
+      if (post && nowAccepted.length >= post.slots) {
+        await supabase.from('lfg_posts').update({ status: 'full' }).eq('id', postId)
+
+        // Auto-create a group for this LFG
+        if (!post.group_id) {
+          setCreatingGroup(postId)
+          const groupName = `${post.game} LFG Group`
+          const { data: newGroup, error: groupError } = await supabase.from('groups').insert({
+            name: groupName,
+            game: post.game,
+            description: post.description,
+            leader_id: post.user_id,
+            category: post.mode?.toLowerCase() || 'casual'
+          }).select().single()
+
+          if (!groupError && newGroup) {
+            // Add all accepted members to the group
+            const memberInserts = nowAccepted.map(r => ({
+              group_id: newGroup.id,
+              user_id: r.user_id,
+              status: 'accepted',
+              role: 'member'
+            }))
+            await supabase.from('group_members').insert(memberInserts)
+
+            // Link group to LFG post
+            await supabase.from('lfg_posts').update({ group_id: newGroup.id }).eq('id', postId)
+
+            // Notify all accepted members
+            const notifInserts = nowAccepted.map(r => ({
+              user_id: r.user_id,
+              type: 'lfg_group_created',
+              content: `🎮 Your LFG group for "${post.game}" is ready! A group chat has been created.`,
+              read: false
+            }))
+            await supabase.from('notifications').insert(notifInserts)
+
+            // Also notify the post owner
+            await supabase.from('notifications').insert({
+              user_id: post.user_id,
+              type: 'lfg_group_created',
+              content: `🎮 Your LFG for "${post.game}" is full! A group chat has been created.`,
+              read: false
+            })
+
+            setCreatingGroup(null)
+            // Navigate to the new group
+            navigate(`/groups/${newGroup.id}`)
+          }
+          setCreatingGroup(null)
+        }
       }
     }
   }
@@ -276,14 +320,13 @@ export default function LFG({ theme }) {
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
           <div>
             <h2 style={{ fontSize: '1.75rem', fontWeight: '700', margin: 0, color: textColor }}>Looking for Group</h2>
-            <p style={{ color: mutedColor, margin: 0, fontSize: '0.9rem' }}>Find players for your next session</p>
+            <p style={{ color: mutedColor, margin: 0, fontSize: '0.9rem' }}>Find players · When full, a group chat is auto-created for everyone</p>
           </div>
           <button onClick={() => setShowCreate(!showCreate)} style={{ padding: '0.75rem 1.5rem', background: 'linear-gradient(135deg, #6c63ff, #a78bfa)', color: 'white', border: 'none', borderRadius: '10px', cursor: 'pointer', fontFamily: 'Inter, sans-serif', fontWeight: '600', fontSize: '0.95rem' }}>
             + Post LFG
           </button>
         </div>
 
-        {/* Create form */}
         {showCreate && (
           <div style={{ background: cardBg, border: `1px solid ${border}`, borderRadius: '16px', padding: '1.5rem', marginBottom: '1.5rem' }}>
             <h3 style={{ fontWeight: '600', marginBottom: '1.25rem', color: textColor, fontSize: '1rem' }}>Create LFG Post</h3>
@@ -319,6 +362,10 @@ export default function LFG({ theme }) {
                 </select>
               </div>
             </div>
+            <div style={{ marginBottom: '0.75rem' }}>
+              <label style={{ fontSize: '0.8rem', color: mutedColor, display: 'block', marginBottom: '0.3rem' }}>Description *</label>
+              <textarea placeholder="What are you looking for? Playstyle, schedule, requirements..." value={newPost.description} onChange={e => setNewPost(p => ({ ...p, description: e.target.value }))} rows={3} style={{ ...inputStyle, resize: 'none' }} />
+            </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '1rem' }}>
               <input type="checkbox" id="mic" checked={newPost.mic_required} onChange={e => setNewPost(p => ({ ...p, mic_required: e.target.checked }))} style={{ width: '16px', height: '16px', cursor: 'pointer' }} />
               <label htmlFor="mic" style={{ color: textColor, fontSize: '0.9rem', cursor: 'pointer' }}>🎙️ Mic required</label>
@@ -330,7 +377,6 @@ export default function LFG({ theme }) {
           </div>
         )}
 
-        {/* Filters */}
         <div style={{ display: 'flex', gap: '0.75rem', marginBottom: '1.25rem', flexWrap: 'wrap', alignItems: 'center' }}>
           <select value={filters.status} onChange={e => setFilters(f => ({ ...f, status: e.target.value }))} style={{ ...selectStyle, width: 'auto', minWidth: '120px' }}>
             <option value="">All status</option>
@@ -370,13 +416,19 @@ export default function LFG({ theme }) {
               const isOwn = post.user_id === currentUser?.id
               const postRequests = requests[post.id] || []
               const myRequest = postRequests.find(r => r.user_id === currentUser?.id)
-              const acceptedCount = postRequests.filter(r => r.status === 'accepted').length
+              const acceptedRequests = postRequests.filter(r => r.status === 'accepted')
+              const acceptedCount = acceptedRequests.length
               const pendingCount = postRequests.filter(r => r.status === 'pending').length
               const isExpanded = expandedPost === post.id
               const statusColor = STATUS_COLORS[post.status] || '#888'
+              const isFull = post.status === 'full'
+              const isCreatingThisGroup = creatingGroup === post.id
+
+              // Am I accepted in this post?
+              const imAccepted = myRequest?.status === 'accepted' || isOwn
 
               return (
-                <div key={post.id} style={{ background: cardBg, border: `1px solid ${border}`, borderRadius: '16px', overflow: 'hidden' }}>
+                <div key={post.id} style={{ background: cardBg, border: isFull ? '1px solid rgba(245,158,11,0.3)' : `1px solid ${border}`, borderRadius: '16px', overflow: 'hidden' }}>
                   <div style={{ padding: '1.25rem' }}>
                     <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.75rem', marginBottom: '1rem' }}>
                       <Avatar userId={post.user_id} size={42} />
@@ -408,20 +460,58 @@ export default function LFG({ theme }) {
                       {post.age_range && post.age_range !== 'Any' && <span style={{ background: isLight ? 'rgba(0,0,0,0.06)' : 'rgba(255,255,255,0.06)', color: mutedColor, border: `1px solid ${border}`, borderRadius: '100px', padding: '0.25rem 0.75rem', fontSize: '0.82rem' }}>👤 {post.age_range}</span>}
                     </div>
 
-                    {post.description && (
-                      <p style={{ fontSize: '0.95rem', color: textColor, lineHeight: 1.6, marginBottom: '1rem' }}>{post.description}</p>
-                    )}
+                    <p style={{ fontSize: '0.95rem', color: textColor, lineHeight: 1.6, marginBottom: '1rem' }}>{post.description}</p>
 
+                    {/* Slots bar */}
                     <div style={{ marginBottom: '1rem' }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.4rem' }}>
                         <span style={{ fontSize: '0.8rem', color: mutedColor }}>Slots filled</span>
                         <span style={{ fontSize: '0.8rem', color: textColor, fontWeight: '600' }}>{acceptedCount}/{post.slots}</span>
                       </div>
                       <div style={{ height: '6px', background: isLight ? 'rgba(0,0,0,0.08)' : 'rgba(255,255,255,0.08)', borderRadius: '3px', overflow: 'hidden' }}>
-                        <div style={{ height: '100%', width: `${Math.min((acceptedCount / post.slots) * 100, 100)}%`, background: acceptedCount >= post.slots ? '#f59e0b' : 'linear-gradient(135deg, #6c63ff, #a78bfa)', borderRadius: '3px', transition: 'width 0.3s' }} />
+                        <div style={{ height: '100%', width: `${Math.min((acceptedCount / post.slots) * 100, 100)}%`, background: isFull ? '#f59e0b' : 'linear-gradient(135deg, #6c63ff, #a78bfa)', borderRadius: '3px', transition: 'width 0.3s' }} />
                       </div>
                     </div>
 
+                    {/* Full group reveal — show accepted members to each other */}
+                    {isFull && imAccepted && acceptedRequests.length > 0 && (
+                      <div style={{ background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.2)', borderRadius: '12px', padding: '1rem', marginBottom: '1rem' }}>
+                        <p style={{ fontSize: '0.85rem', color: '#f59e0b', fontWeight: '600', marginBottom: '0.75rem' }}>🎉 Group is full! Your teammates:</p>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
+                          {/* Show post owner */}
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                            <Avatar userId={post.user_id} size={32} />
+                            <div style={{ flex: 1 }}>
+                              <p style={{ fontSize: '0.88rem', color: textColor, fontWeight: '600', margin: 0 }}>{getName(post.user_id)} <span style={{ color: '#f59e0b', fontSize: '0.75rem' }}>👑 Host</span></p>
+                            </div>
+                            {post.user_id !== currentUser?.id && (
+                              <button onClick={() => navigate(`/chat/${post.user_id}`)} style={{ padding: '0.3rem 0.7rem', background: 'rgba(108,99,255,0.15)', color: '#a78bfa', border: '1px solid rgba(108,99,255,0.3)', borderRadius: '6px', cursor: 'pointer', fontFamily: 'Inter, sans-serif', fontSize: '0.78rem', fontWeight: '600' }}>💬 DM</button>
+                            )}
+                          </div>
+                          {/* Show accepted members */}
+                          {acceptedRequests.map(req => (
+                            <div key={req.id} style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                              <Avatar userId={req.user_id} size={32} />
+                              <p style={{ fontSize: '0.88rem', color: textColor, fontWeight: '500', flex: 1, margin: 0 }}>{getName(req.user_id)}</p>
+                              {req.user_id !== currentUser?.id && (
+                                <button onClick={() => navigate(`/chat/${req.user_id}`)} style={{ padding: '0.3rem 0.7rem', background: 'rgba(108,99,255,0.15)', color: '#a78bfa', border: '1px solid rgba(108,99,255,0.3)', borderRadius: '6px', cursor: 'pointer', fontFamily: 'Inter, sans-serif', fontSize: '0.78rem', fontWeight: '600' }}>💬 DM</button>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                        {/* Group chat button */}
+                        {post.group_id && (
+                          <button onClick={() => navigate(`/groups/${post.group_id}`)} style={{ width: '100%', marginTop: '0.75rem', padding: '0.65rem', background: 'linear-gradient(135deg, #6c63ff, #a78bfa)', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontFamily: 'Inter, sans-serif', fontWeight: '600', fontSize: '0.9rem' }}>
+                            🎮 Open Group Chat
+                          </button>
+                        )}
+                        {isCreatingThisGroup && (
+                          <p style={{ textAlign: 'center', color: '#a78bfa', fontSize: '0.85rem', marginTop: '0.75rem' }}>Creating group chat...</p>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Actions */}
                     <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
                       {!isOwn && post.status === 'open' && (
                         myRequest ? (
@@ -434,16 +524,19 @@ export default function LFG({ theme }) {
                           </button>
                         )
                       )}
-                      {myRequest?.status === 'accepted' && (
-                        <button onClick={() => navigate(`/user/${post.user_id}`)} style={{ padding: '0.6rem 1.25rem', background: 'rgba(16,185,129,0.15)', color: '#10b981', border: '1px solid rgba(16,185,129,0.3)', borderRadius: '8px', cursor: 'pointer', fontFamily: 'Inter, sans-serif', fontWeight: '600', fontSize: '0.9rem' }}>💬 Message</button>
-                      )}
                       {isOwn && pendingCount > 0 && (
                         <button onClick={() => setExpandedPost(isExpanded ? null : post.id)} style={{ padding: '0.6rem 1.25rem', background: 'rgba(245,158,11,0.15)', color: '#f59e0b', border: '1px solid rgba(245,158,11,0.3)', borderRadius: '8px', cursor: 'pointer', fontFamily: 'Inter, sans-serif', fontWeight: '600', fontSize: '0.9rem' }}>
                           {pendingCount} Request{pendingCount !== 1 ? 's' : ''} →
                         </button>
                       )}
+                      {post.group_id && imAccepted && (
+                        <button onClick={() => navigate(`/groups/${post.group_id}`)} style={{ padding: '0.6rem 1.25rem', background: 'rgba(108,99,255,0.15)', color: '#a78bfa', border: '1px solid rgba(108,99,255,0.3)', borderRadius: '8px', cursor: 'pointer', fontFamily: 'Inter, sans-serif', fontWeight: '600', fontSize: '0.9rem' }}>
+                          🎮 Group Chat
+                        </button>
+                      )}
                     </div>
 
+                    {/* Request form */}
                     {isExpanded && !isOwn && !myRequest && (
                       <div style={{ marginTop: '1rem', padding: '1rem', background: isLight ? 'rgba(108,99,255,0.05)' : 'rgba(108,99,255,0.08)', border: '1px solid rgba(108,99,255,0.2)', borderRadius: '12px' }}>
                         <p style={{ fontSize: '0.85rem', color: '#a78bfa', fontWeight: '600', marginBottom: '0.75rem' }}>Send a request</p>
@@ -455,6 +548,7 @@ export default function LFG({ theme }) {
                       </div>
                     )}
 
+                    {/* Requests list for owner */}
                     {isExpanded && isOwn && postRequests.length > 0 && (
                       <div style={{ marginTop: '1rem', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
                         <p style={{ fontSize: '0.85rem', color: mutedColor, fontWeight: '600', margin: 0 }}>Requests ({postRequests.length})</p>
