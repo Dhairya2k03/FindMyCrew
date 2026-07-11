@@ -1,21 +1,100 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabaseClient'
-
-const GAMES = [
-  'Valorant', 'CS2', 'Fortnite', 'Apex Legends', 'League of Legends',
-  'Dota 2', 'Overwatch 2', 'Rocket League', 'Call of Duty', 'Minecraft',
-  'GTA V', 'Rust', 'Among Us', 'FIFA', 'NBA 2K', 'Elden Ring',
-  'Deep Rock Galactic', 'Sea of Thieves', 'Destiny 2', 'Rainbow Six Siege',
-  'PUBG', 'Fall Guys', 'Genshin Impact', 'Other'
-]
 
 const REGIONS = ['NA East', 'NA West', 'EU West', 'EU East', 'Asia', 'OCE', 'SA', 'ME', 'Any']
 const MODES = ['Ranked', 'Casual', 'Competitive', 'Co-op', 'Story', 'Any']
 const AGE_RANGES = ['13-17', '18-24', '25-30', '30+', 'Any']
-
 const STATUS_COLORS = { open: '#10b981', full: '#f59e0b', closed: '#ef4444' }
 const STATUS_LABELS = { open: '🟢 Open', full: '🟡 Full', closed: '🔴 Closed' }
+const RAWG_KEY = import.meta.env.VITE_RAWG_API_KEY
+
+const GameSearch = ({ value, onChange, inputStyle, textColor, border, inputBg, inputBorder, mutedColor }) => {
+  const [query, setQuery] = useState(value || '')
+  const [results, setResults] = useState([])
+  const [searching, setSearching] = useState(false)
+  const [showDropdown, setShowDropdown] = useState(false)
+  const timeout = useRef(null)
+  const wrapperRef = useRef(null)
+
+  useEffect(() => {
+    const handler = (e) => { if (wrapperRef.current && !wrapperRef.current.contains(e.target)) setShowDropdown(false) }
+    document.addEventListener('click', handler)
+    return () => document.removeEventListener('click', handler)
+  }, [])
+
+  const search = async (q) => {
+    if (!q.trim()) { setResults([]); return }
+    setSearching(true)
+    try {
+      const res = await fetch(`https://api.rawg.io/api/games?key=${RAWG_KEY}&search=${encodeURIComponent(q)}&page_size=8`)
+      const data = await res.json()
+      setResults(data.results || [])
+    } catch {}
+    setSearching(false)
+  }
+
+  const handleChange = (e) => {
+    const q = e.target.value
+    setQuery(q)
+    setShowDropdown(true)
+    clearTimeout(timeout.current)
+    timeout.current = setTimeout(() => search(q), 400)
+  }
+
+  const select = (game) => {
+    setQuery(game.name)
+    onChange(game.name)
+    setShowDropdown(false)
+    setResults([])
+  }
+
+  const clear = () => {
+    setQuery('')
+    onChange('')
+    setResults([])
+  }
+
+  return (
+    <div ref={wrapperRef} style={{ position: 'relative' }}>
+      <div style={{ position: 'relative' }}>
+        <input
+          type="text"
+          placeholder="Search any game..."
+          value={query}
+          onChange={handleChange}
+          onFocus={() => query && setShowDropdown(true)}
+          style={{ ...inputStyle, paddingRight: query ? '2rem' : '1rem' }}
+        />
+        {query && (
+          <button onClick={clear} style={{ position: 'absolute', right: '0.5rem', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: mutedColor, cursor: 'pointer', fontSize: '0.9rem' }}>✕</button>
+        )}
+      </div>
+      {showDropdown && (query) && (
+        <div style={{ position: 'absolute', top: '110%', left: 0, right: 0, background: inputBg === 'rgba(0,0,0,0.04)' ? '#f0f0f7' : '#1a1a2e', border: `1px solid ${border}`, borderRadius: '10px', zIndex: 100, boxShadow: '0 4px 20px rgba(0,0,0,0.3)', overflow: 'hidden' }}>
+          {searching ? (
+            <p style={{ padding: '0.75rem 1rem', color: mutedColor, fontSize: '0.85rem' }}>Searching...</p>
+          ) : results.length === 0 ? (
+            <p style={{ padding: '0.75rem 1rem', color: mutedColor, fontSize: '0.85rem' }}>No games found</p>
+          ) : (
+            results.map(game => (
+              <div key={game.id} onClick={() => select(game)} style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.6rem 1rem', cursor: 'pointer', borderBottom: `1px solid ${border}` }}
+                onMouseEnter={e => e.currentTarget.style.background = 'rgba(108,99,255,0.1)'}
+                onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+              >
+                {game.background_image && <img src={game.background_image} alt="" style={{ width: '36px', height: '36px', borderRadius: '6px', objectFit: 'cover', flexShrink: 0 }} />}
+                <div>
+                  <p style={{ fontSize: '0.88rem', color: textColor, fontWeight: '500', margin: 0 }}>{game.name}</p>
+                  {game.released && <p style={{ fontSize: '0.72rem', color: mutedColor, margin: 0 }}>{new Date(game.released).getFullYear()}</p>}
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
 
 export default function LFG({ theme }) {
   const [posts, setPosts] = useState([])
@@ -27,11 +106,7 @@ export default function LFG({ theme }) {
   const [expandedPost, setExpandedPost] = useState(null)
   const [myRequestMessage, setMyRequestMessage] = useState('')
   const [filters, setFilters] = useState({ game: '', region: '', mode: '', status: 'open' })
-  const [showFilters, setShowFilters] = useState(false)
-  const [newPost, setNewPost] = useState({
-    game: '', mode: 'Any', rank: '', region: 'Any',
-    mic_required: false, age_range: 'Any', slots: 1, description: ''
-  })
+  const [newPost, setNewPost] = useState({ game: '', mode: 'Any', rank: '', region: 'Any', mic_required: false, age_range: 'Any', slots: 1, description: '' })
   const navigate = useNavigate()
 
   const isLight = theme === 'light'
@@ -42,7 +117,6 @@ export default function LFG({ theme }) {
   const cardBg = isLight ? 'rgba(255,255,255,0.8)' : 'rgba(255,255,255,0.03)'
   const inputBg = isLight ? 'rgba(0,0,0,0.04)' : 'rgba(255,255,255,0.05)'
   const inputBorder = isLight ? 'rgba(0,0,0,0.1)' : 'rgba(255,255,255,0.1)'
-
   const inputStyle = { padding: '0.65rem 1rem', borderRadius: '8px', border: `1px solid ${inputBorder}`, background: inputBg, color: textColor, fontFamily: 'Inter, sans-serif', fontSize: '0.9rem', outline: 'none', width: '100%', boxSizing: 'border-box' }
   const selectStyle = { ...inputStyle, cursor: 'pointer' }
 
@@ -93,7 +167,6 @@ export default function LFG({ theme }) {
     const { data: postsData } = await supabase.from('lfg_posts').select('*').order('created_at', { ascending: false })
     if (!postsData) return
     setPosts(postsData)
-
     const userIds = [...new Set(postsData.map(p => p.user_id))]
     if (userIds.length > 0) {
       const { data: profilesData } = await supabase.from('profiles').select('*').in('id', userIds)
@@ -101,7 +174,6 @@ export default function LFG({ theme }) {
       profilesData?.forEach(p => { map[p.id] = p })
       setProfiles(map)
     }
-
     const postIds = postsData.map(p => p.id)
     if (postIds.length > 0) {
       const { data: reqData } = await supabase.from('lfg_requests').select('*').in('lfg_post_id', postIds)
@@ -111,8 +183,6 @@ export default function LFG({ theme }) {
         if (!reqMap[r.lfg_post_id].some(x => x.id === r.id)) reqMap[r.lfg_post_id].push(r)
       })
       setRequests(reqMap)
-
-      // Load profiles for requesters
       const requesterIds = [...new Set(reqData?.map(r => r.user_id) || [])]
       if (requesterIds.length > 0) {
         const { data: reqProfiles } = await supabase.from('profiles').select('*').in('id', requesterIds)
@@ -144,11 +214,7 @@ export default function LFG({ theme }) {
   }
 
   const sendRequest = async (postId) => {
-    const { error } = await supabase.from('lfg_requests').insert({
-      lfg_post_id: postId,
-      user_id: currentUser.id,
-      message: myRequestMessage.trim() || null
-    })
+    const { error } = await supabase.from('lfg_requests').insert({ lfg_post_id: postId, user_id: currentUser.id, message: myRequestMessage.trim() || null })
     if (error) return alert(error.message)
     setMyRequestMessage('')
     setExpandedPost(null)
@@ -163,31 +229,16 @@ export default function LFG({ theme }) {
       if (post && accepted.length >= post.slots) {
         await supabase.from('lfg_posts').update({ status: 'full' }).eq('id', postId)
       }
-      // Send notification
       const req = postRequests.find(r => r.id === requestId)
       if (req) {
-        await supabase.from('notifications').insert({
-          user_id: req.user_id,
-          type: 'lfg_accepted',
-          content: `✅ Your LFG request for ${post?.game} was accepted!`,
-          read: false
-        })
+        await supabase.from('notifications').insert({ user_id: req.user_id, type: 'lfg_accepted', content: `✅ Your LFG request for ${post?.game} was accepted!`, read: false })
       }
     }
   }
 
-  const closePost = async (postId) => {
-    await supabase.from('lfg_posts').update({ status: 'closed' }).eq('id', postId)
-  }
-
-  const reopenPost = async (postId) => {
-    await supabase.from('lfg_posts').update({ status: 'open' }).eq('id', postId)
-  }
-
-  const deletePost = async (postId) => {
-    if (!window.confirm('Delete this LFG post?')) return
-    await supabase.from('lfg_posts').delete().eq('id', postId)
-  }
+  const closePost = async (postId) => { await supabase.from('lfg_posts').update({ status: 'closed' }).eq('id', postId) }
+  const reopenPost = async (postId) => { await supabase.from('lfg_posts').update({ status: 'open' }).eq('id', postId) }
+  const deletePost = async (postId) => { if (!window.confirm('Delete this LFG post?')) return; await supabase.from('lfg_posts').delete().eq('id', postId) }
 
   const getName = (uid) => { const p = profiles[uid]; return p?.username || p?.email?.split('@')[0] || 'Player' }
   const getAvatar = (uid) => profiles[uid]?.avatar_url
@@ -211,18 +262,19 @@ export default function LFG({ theme }) {
   }
 
   const filtered = posts.filter(p => {
-    if (filters.game && p.game !== filters.game) return false
+    if (filters.game && !p.game?.toLowerCase().includes(filters.game.toLowerCase())) return false
     if (filters.region && filters.region !== 'Any' && p.region !== filters.region) return false
     if (filters.mode && filters.mode !== 'Any' && p.mode !== filters.mode) return false
     if (filters.status && p.status !== filters.status) return false
     return true
   })
 
+  const gameSearchProps = { inputStyle, textColor, border, inputBg, inputBorder, mutedColor }
+
   return (
     <div style={{ minHeight: 'calc(100vh - 64px)', background: bg, padding: '1.5rem' }}>
       <div style={{ maxWidth: '750px', margin: '0 auto' }}>
 
-        {/* Header */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
           <div>
             <h2 style={{ fontSize: '1.75rem', fontWeight: '700', margin: 0, color: textColor }}>Looking for Group</h2>
@@ -233,18 +285,14 @@ export default function LFG({ theme }) {
           </button>
         </div>
 
-        {/* Create post form */}
+        {/* Create form */}
         {showCreate && (
           <div style={{ background: cardBg, border: `1px solid ${border}`, borderRadius: '16px', padding: '1.5rem', marginBottom: '1.5rem' }}>
             <h3 style={{ fontWeight: '600', marginBottom: '1.25rem', color: textColor, fontSize: '1rem' }}>Create LFG Post</h3>
-
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem', marginBottom: '0.75rem' }}>
               <div>
-                <label style={{ fontSize: '0.8rem', color: mutedColor, display: 'block', marginBottom: '0.3rem' }}>Game *</label>
-                <select value={newPost.game} onChange={e => setNewPost(p => ({ ...p, game: e.target.value }))} style={selectStyle}>
-                  <option value="">Select game...</option>
-                  {GAMES.map(g => <option key={g} value={g}>{g}</option>)}
-                </select>
+                <label style={{ fontSize: '0.8rem', color: mutedColor, display: 'block', marginBottom: '0.3rem' }}>Game * (search any game)</label>
+                <GameSearch value={newPost.game} onChange={g => setNewPost(p => ({ ...p, game: g }))} {...gameSearchProps} />
               </div>
               <div>
                 <label style={{ fontSize: '0.8rem', color: mutedColor, display: 'block', marginBottom: '0.3rem' }}>Mode</label>
@@ -273,17 +321,14 @@ export default function LFG({ theme }) {
                 </select>
               </div>
             </div>
-
             <div style={{ marginBottom: '0.75rem' }}>
               <label style={{ fontSize: '0.8rem', color: mutedColor, display: 'block', marginBottom: '0.3rem' }}>Description *</label>
               <textarea placeholder="What are you looking for? Playstyle, schedule, requirements..." value={newPost.description} onChange={e => setNewPost(p => ({ ...p, description: e.target.value }))} rows={3} style={{ ...inputStyle, resize: 'none' }} />
             </div>
-
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '1rem' }}>
               <input type="checkbox" id="mic" checked={newPost.mic_required} onChange={e => setNewPost(p => ({ ...p, mic_required: e.target.checked }))} style={{ width: '16px', height: '16px', cursor: 'pointer' }} />
               <label htmlFor="mic" style={{ color: textColor, fontSize: '0.9rem', cursor: 'pointer' }}>🎙️ Mic required</label>
             </div>
-
             <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end' }}>
               <button onClick={() => setShowCreate(false)} style={{ padding: '0.6rem 1rem', background: 'transparent', color: mutedColor, border: `1px solid ${inputBorder}`, borderRadius: '8px', cursor: 'pointer', fontFamily: 'Inter, sans-serif', fontSize: '0.9rem' }}>Cancel</button>
               <button onClick={createPost} style={{ padding: '0.6rem 1.5rem', background: 'linear-gradient(135deg, #6c63ff, #a78bfa)', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontFamily: 'Inter, sans-serif', fontWeight: '600', fontSize: '0.9rem' }}>Post</button>
@@ -299,10 +344,7 @@ export default function LFG({ theme }) {
             <option value="full">🟡 Full</option>
             <option value="closed">🔴 Closed</option>
           </select>
-          <select value={filters.game} onChange={e => setFilters(f => ({ ...f, game: e.target.value }))} style={{ ...selectStyle, width: 'auto', minWidth: '140px' }}>
-            <option value="">All games</option>
-            {GAMES.map(g => <option key={g} value={g}>{g}</option>)}
-          </select>
+          <input type="text" placeholder="Filter by game..." value={filters.game} onChange={e => setFilters(f => ({ ...f, game: e.target.value }))} style={{ ...inputStyle, width: '160px' }} />
           <select value={filters.region} onChange={e => setFilters(f => ({ ...f, region: e.target.value }))} style={{ ...selectStyle, width: 'auto', minWidth: '120px' }}>
             <option value="">All regions</option>
             {REGIONS.map(r => <option key={r} value={r}>{r}</option>)}
@@ -318,7 +360,6 @@ export default function LFG({ theme }) {
 
         <p style={{ color: mutedColor, fontSize: '0.85rem', marginBottom: '1rem' }}>{filtered.length} post{filtered.length !== 1 ? 's' : ''} found</p>
 
-        {/* Posts */}
         {loading ? (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
             {[1,2,3].map(i => <div key={i} style={{ background: cardBg, border: `1px solid ${border}`, borderRadius: '16px', height: '140px', animation: 'pulse 1.5s infinite' }} />)}
@@ -343,7 +384,6 @@ export default function LFG({ theme }) {
               return (
                 <div key={post.id} style={{ background: cardBg, border: `1px solid ${border}`, borderRadius: '16px', overflow: 'hidden' }}>
                   <div style={{ padding: '1.25rem' }}>
-                    {/* Header */}
                     <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.75rem', marginBottom: '1rem' }}>
                       <Avatar userId={post.user_id} size={42} />
                       <div style={{ flex: 1, minWidth: 0 }}>
@@ -365,7 +405,6 @@ export default function LFG({ theme }) {
                       )}
                     </div>
 
-                    {/* Game info tags */}
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '0.85rem' }}>
                       <span style={{ background: 'rgba(108,99,255,0.12)', color: '#a78bfa', border: '1px solid rgba(108,99,255,0.25)', borderRadius: '100px', padding: '0.25rem 0.75rem', fontSize: '0.82rem', fontWeight: '600' }}>🎮 {post.game}</span>
                       {post.mode && post.mode !== 'Any' && <span style={{ background: isLight ? 'rgba(0,0,0,0.06)' : 'rgba(255,255,255,0.06)', color: mutedColor, border: `1px solid ${border}`, borderRadius: '100px', padding: '0.25rem 0.75rem', fontSize: '0.82rem' }}>{post.mode}</span>}
@@ -375,10 +414,8 @@ export default function LFG({ theme }) {
                       {post.age_range && post.age_range !== 'Any' && <span style={{ background: isLight ? 'rgba(0,0,0,0.06)' : 'rgba(255,255,255,0.06)', color: mutedColor, border: `1px solid ${border}`, borderRadius: '100px', padding: '0.25rem 0.75rem', fontSize: '0.82rem' }}>👤 {post.age_range}</span>}
                     </div>
 
-                    {/* Description */}
                     <p style={{ fontSize: '0.95rem', color: textColor, lineHeight: 1.6, marginBottom: '1rem' }}>{post.description}</p>
 
-                    {/* Slots bar */}
                     <div style={{ marginBottom: '1rem' }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.4rem' }}>
                         <span style={{ fontSize: '0.8rem', color: mutedColor }}>Slots filled</span>
@@ -389,7 +426,6 @@ export default function LFG({ theme }) {
                       </div>
                     </div>
 
-                    {/* Actions */}
                     <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
                       {!isOwn && post.status === 'open' && (
                         myRequest ? (
@@ -403,9 +439,7 @@ export default function LFG({ theme }) {
                         )
                       )}
                       {myRequest?.status === 'accepted' && (
-                        <button onClick={() => navigate(`/user/${post.user_id}`)} style={{ padding: '0.6rem 1.25rem', background: 'rgba(16,185,129,0.15)', color: '#10b981', border: '1px solid rgba(16,185,129,0.3)', borderRadius: '8px', cursor: 'pointer', fontFamily: 'Inter, sans-serif', fontWeight: '600', fontSize: '0.9rem' }}>
-                          💬 Message
-                        </button>
+                        <button onClick={() => navigate(`/user/${post.user_id}`)} style={{ padding: '0.6rem 1.25rem', background: 'rgba(16,185,129,0.15)', color: '#10b981', border: '1px solid rgba(16,185,129,0.3)', borderRadius: '8px', cursor: 'pointer', fontFamily: 'Inter, sans-serif', fontWeight: '600', fontSize: '0.9rem' }}>💬 Message</button>
                       )}
                       {isOwn && pendingCount > 0 && (
                         <button onClick={() => setExpandedPost(isExpanded ? null : post.id)} style={{ padding: '0.6rem 1.25rem', background: 'rgba(245,158,11,0.15)', color: '#f59e0b', border: '1px solid rgba(245,158,11,0.3)', borderRadius: '8px', cursor: 'pointer', fontFamily: 'Inter, sans-serif', fontWeight: '600', fontSize: '0.9rem' }}>
@@ -414,7 +448,6 @@ export default function LFG({ theme }) {
                       )}
                     </div>
 
-                    {/* Request form */}
                     {isExpanded && !isOwn && !myRequest && (
                       <div style={{ marginTop: '1rem', padding: '1rem', background: isLight ? 'rgba(108,99,255,0.05)' : 'rgba(108,99,255,0.08)', border: '1px solid rgba(108,99,255,0.2)', borderRadius: '12px' }}>
                         <p style={{ fontSize: '0.85rem', color: '#a78bfa', fontWeight: '600', marginBottom: '0.75rem' }}>Send a request</p>
@@ -426,7 +459,6 @@ export default function LFG({ theme }) {
                       </div>
                     )}
 
-                    {/* Requests list for post owner */}
                     {isExpanded && isOwn && postRequests.length > 0 && (
                       <div style={{ marginTop: '1rem', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
                         <p style={{ fontSize: '0.85rem', color: mutedColor, fontWeight: '600', margin: 0 }}>Requests ({postRequests.length})</p>
