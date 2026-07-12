@@ -163,8 +163,8 @@ export default function LFG({ theme }) {
     slots: 1,
     description: ''
   })
-  const [creatingGroup, setCreatingGroup] = useState(null)
   const [respondingId, setRespondingId] = useState(null)
+  const [sendingRequest, setSendingRequest] = useState(false)
   const navigate = useNavigate()
 
   const isLight = theme === 'light'
@@ -208,6 +208,9 @@ export default function LFG({ theme }) {
         loadProfileForUser(payload.new.user_id)
       })
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'lfg_posts' }, payload => {
+        // This also catches group_id being cleared when a group is deleted
+        // (via the ON DELETE SET NULL foreign key), so the "Group Chat"
+        // button disappears for every viewer automatically.
         setPosts(prev => prev.map(p => p.id === payload.new.id ? payload.new : p))
       })
       .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'lfg_posts' }, payload => {
@@ -227,6 +230,12 @@ export default function LFG({ theme }) {
           ...prev,
           [r.lfg_post_id]: (prev[r.lfg_post_id] || []).map(x => x.id === r.id ? r : x)
         }))
+      })
+      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'groups' }, payload => {
+        // Defensive fallback in case the DB foreign key isn't set to
+        // ON DELETE SET NULL yet — clears the group locally either way.
+        const deletedGroupId = payload.old.id
+        setPosts(prev => prev.map(p => p.group_id === deletedGroupId ? { ...p, group_id: null } : p))
       })
       .subscribe()
 
@@ -307,19 +316,35 @@ export default function LFG({ theme }) {
     setShowCreate(false)
   }
 
+  // Guarded: prevents a double-click / slow-network double-tap from
+  // inserting two lfg_requests rows for the same user on the same post
+  // (which was the root cause of one account showing up twice).
   const sendRequest = async (postId) => {
-    const { error } = await supabase.from('lfg_requests').insert({
-      lfg_post_id: postId,
-      user_id: currentUser.id,
-      message: myRequestMessage.trim() || null
-    })
-    if (error) return alert(error.message)
-    setMyRequestMessage('')
-    setExpandedPost(null)
+    if (sendingRequest) return
+    const alreadyRequested = (requests[postId] || []).some(r => r.user_id === currentUser.id)
+    if (alreadyRequested) {
+      setExpandedPost(null)
+      return
+    }
+    setSendingRequest(true)
+    try {
+      const { error } = await supabase.from('lfg_requests').insert({
+        lfg_post_id: postId,
+        user_id: currentUser.id,
+        message: myRequestMessage.trim() || null
+      })
+      // 23505 = unique_violation, thrown if the DB unique constraint catches
+      // a race the client-side check missed. Treat it as a harmless no-op.
+      if (error && error.code !== '23505') return alert(error.message)
+      setMyRequestMessage('')
+      setExpandedPost(null)
+    } finally {
+      setSendingRequest(false)
+    }
   }
 
   // Guarded wrapper: prevents double-clicks / double-submission from firing
-  // this whole flow twice, which was the root cause of duplicate group members.
+  // this whole flow twice.
   const respondToRequest = async (requestId, postId, status) => {
     if (respondingId) return
     setRespondingId(requestId)
@@ -330,106 +355,116 @@ export default function LFG({ theme }) {
     }
   }
 
+  // Accepting a request now immediately puts that person in a group with
+  // the post owner — it no longer waits for all slots to fill. The first
+  // acceptance creates the group; every acceptance after that just adds
+  // the person to the group that already exists.
   const respondToRequestInner = async (requestId, postId, status) => {
-    await supabase.from('lfg_requests').update({ status }).eq('id', requestId)
+    const { data: updatedReq, error: updateErr } = await supabase
+      .from('lfg_requests')
+      .update({ status })
+      .eq('id', requestId)
+      .select()
+      .single()
 
-    if (status === 'accepted') {
-      const post = posts.find(p => p.id === postId)
+    if (updateErr || !updatedReq) {
+      console.error('Failed to update request:', updateErr)
+      return
+    }
 
-      // Notify the accepted user
-      const req = (requests[postId] || []).find(r => r.id === requestId)
-      if (req) {
-        await supabase.from('notifications').insert({
-          user_id: req.user_id,
-          type: 'lfg_accepted',
-          content: `✅ Your LFG request for "${post?.game}" was accepted! Check the LFG page.`,
-          read: false
-        })
+    if (status !== 'accepted') return
+
+    const { data: freshPost, error: postErr } = await supabase
+      .from('lfg_posts')
+      .select('*')
+      .eq('id', postId)
+      .single()
+
+    if (postErr || !freshPost) {
+      console.error('Failed to load post:', postErr)
+      return
+    }
+
+    await supabase.from('notifications').insert({
+      user_id: updatedReq.user_id,
+      type: 'lfg_accepted',
+      content: `✅ Your LFG request for "${freshPost.game}" was accepted! You've been added to the group.`,
+      read: false
+    })
+
+    let groupId = freshPost.group_id
+
+    if (!groupId) {
+      const { data: newGroup, error: groupError } = await supabase.from('groups').insert({
+        name: `${freshPost.game} LFG Group`,
+        game: freshPost.game,
+        description: freshPost.description,
+        leader_id: freshPost.user_id,
+        category: freshPost.mode?.toLowerCase() || 'casual'
+      }).select().single()
+
+      if (groupError || !newGroup) {
+        console.error('Failed to create group:', groupError)
+        return
       }
 
-      // Re-check against the DB (not stale local state) whether a group
-      // already exists for this post before doing anything else.
-      const { data: freshPost } = await supabase
+      // Atomic claim: only succeeds for the request that gets there first.
+      // If two "Accept" clicks race each other, only one group survives.
+      const { data: claimed, error: claimErr } = await supabase
         .from('lfg_posts')
-        .select('*')
+        .update({ group_id: newGroup.id })
         .eq('id', postId)
+        .is('group_id', null)
+        .select()
         .single()
 
-      if (freshPost?.group_id) {
-        // A group already exists — just make sure this accepted user is a
-        // member, then stop. Upsert makes this safe even if it runs twice.
-        if (req) {
-          await supabase.from('group_members').upsert(
-            { group_id: freshPost.group_id, user_id: req.user_id, status: 'accepted', role: 'member' },
-            { onConflict: 'group_id,user_id', ignoreDuplicates: true }
-          )
-        }
-        return
-      }
-
-      // Fetch fresh accepted requests from DB.
-      // NOTE: this requires an RLS policy allowing the post owner to SELECT
-      // every request row tied to their own post (not just rows where
-      // auth.uid() = user_id), otherwise this silently returns too few rows.
-      const { data: freshRequests, error: freshError } = await supabase
-        .from('lfg_requests')
-        .select('*')
-        .eq('lfg_post_id', postId)
-        .eq('status', 'accepted')
-
-      if (freshError) {
-        console.error('Failed to fetch accepted requests:', freshError)
-        return
-      }
-
-      const nowAccepted = freshRequests || []
-
-      if (post && nowAccepted.length >= post.slots) {
-        await supabase.from('lfg_posts').update({ status: 'full' }).eq('id', postId)
-        setCreatingGroup(postId)
-
-        const groupName = `${post.game} LFG Group`
-        const { data: newGroup, error: groupError } = await supabase.from('groups').insert({
-          name: groupName,
-          game: post.game,
-          description: post.description,
-          leader_id: post.user_id,
-          category: post.mode?.toLowerCase() || 'casual'
-        }).select().single()
-
-        if (!groupError && newGroup) {
-          // Add post owner as leader — upsert so a re-run can't duplicate this row
-          await supabase.from('group_members').upsert(
-            { group_id: newGroup.id, user_id: post.user_id, status: 'accepted', role: 'leader' },
-            { onConflict: 'group_id,user_id', ignoreDuplicates: true }
-          )
-
-          // Add all accepted requesters — upsert each so re-runs are harmless
-          for (const r of nowAccepted) {
-            await supabase.from('group_members').upsert(
-              { group_id: newGroup.id, user_id: r.user_id, status: 'accepted', role: 'member' },
-              { onConflict: 'group_id,user_id', ignoreDuplicates: true }
-            )
-          }
-
-          await supabase.from('lfg_posts').update({ group_id: newGroup.id }).eq('id', postId)
-
-          // Notify all accepted members
-          const allUserIds = [...new Set([post.user_id, ...nowAccepted.map(r => r.user_id)])]
-          const notifInserts = allUserIds.map(uid => ({
-            user_id: uid,
-            type: 'lfg_group_created',
-            content: `🎮 Your LFG group for "${post.game}" is ready! A group chat has been created.`,
-            read: false
-          }))
-          await supabase.from('notifications').insert(notifInserts)
-
-          setCreatingGroup(null)
-          navigate(`/groups/${newGroup.id}`)
-        }
-        setCreatingGroup(null)
+      if (claimErr || !claimed) {
+        // Someone else's acceptance created the group first — discard ours
+        // and use theirs instead.
+        await supabase.from('groups').delete().eq('id', newGroup.id)
+        const { data: latestPost } = await supabase.from('lfg_posts').select('*').eq('id', postId).single()
+        groupId = latestPost?.group_id
+      } else {
+        groupId = newGroup.id
+        // Add the post owner as leader
+        await supabase.from('group_members').upsert(
+          { group_id: groupId, user_id: freshPost.user_id, status: 'accepted', role: 'leader' },
+          { onConflict: 'group_id,user_id', ignoreDuplicates: true }
+        )
       }
     }
+
+    if (!groupId) return
+
+    // Add the newly accepted member. upsert + ignoreDuplicates makes this
+    // safe even if this ever runs twice for the same person.
+    await supabase.from('group_members').upsert(
+      { group_id: groupId, user_id: updatedReq.user_id, status: 'accepted', role: 'member' },
+      { onConflict: 'group_id,user_id', ignoreDuplicates: true }
+    )
+
+    await supabase.from('notifications').insert({
+      user_id: updatedReq.user_id,
+      type: 'lfg_group_created',
+      content: `🎮 You've been added to the "${freshPost.game}" group chat!`,
+      read: false
+    })
+
+    // Purely cosmetic: mark the post "full" once enough people are in,
+    // so new players stop seeing it as open. The group itself already
+    // exists regardless of this.
+    const { data: acceptedRows } = await supabase
+      .from('lfg_requests')
+      .select('user_id')
+      .eq('lfg_post_id', postId)
+      .eq('status', 'accepted')
+
+    const uniqueAcceptedCount = new Set((acceptedRows || []).map(r => r.user_id)).size
+    if (uniqueAcceptedCount >= freshPost.slots) {
+      await supabase.from('lfg_posts').update({ status: 'full' }).eq('id', postId)
+    }
+
+    navigate(`/groups/${groupId}`)
   }
 
   const closePost = async (postId) => {
@@ -519,7 +554,7 @@ export default function LFG({ theme }) {
           <div>
             <h2 style={{ fontSize: '1.75rem', fontWeight: '700', margin: 0, color: textColor }}>Looking for Group</h2>
             <p style={{ color: mutedColor, margin: 0, fontSize: '0.9rem' }}>
-              Find players · When full, a group chat is auto-created for everyone
+              Find players · A group chat is created the moment someone is accepted
             </p>
           </div>
           <button
@@ -724,16 +759,23 @@ export default function LFG({ theme }) {
               const isOwn = post.user_id === currentUser?.id
               const postRequests = requests[post.id] || []
               const myRequest = postRequests.find(r => r.user_id === currentUser?.id)
-              const acceptedRequests = postRequests.filter(r => r.status === 'accepted')
+
+              // Dedupe accepted requests by user_id so a stray duplicate row
+              // (old data, or a race that slipped past the DB constraint)
+              // can never render the same person twice.
+              const acceptedRequests = Array.from(
+                new Map(
+                  postRequests.filter(r => r.status === 'accepted').map(r => [r.user_id, r])
+                ).values()
+              )
               const acceptedCount = acceptedRequests.length
               const pendingCount = postRequests.filter(r => r.status === 'pending').length
               const isExpanded = expandedPost === post.id
               const statusColor = STATUS_COLORS[post.status] || '#888'
               const isFull = post.status === 'full'
-              const isCreatingThisGroup = creatingGroup === post.id
 
-              // Am I accepted in this post?
               const imAccepted = myRequest?.status === 'accepted' || isOwn
+              const hasGroup = !!post.group_id
 
               return (
                 <div
@@ -869,10 +911,12 @@ export default function LFG({ theme }) {
                       </div>
                     </div>
 
-                    {/* Full group reveal — show accepted members to each other */}
-                    {isFull && imAccepted && acceptedRequests.length > 0 && (
+                    {/* Group reveal — shows as soon as a group exists, not just when full */}
+                    {hasGroup && imAccepted && (
                       <div style={{ background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.2)', borderRadius: '12px', padding: '1rem', marginBottom: '1rem' }}>
-                        <p style={{ fontSize: '0.85rem', color: '#f59e0b', fontWeight: '600', marginBottom: '0.75rem' }}>🎉 Group is full! Your teammates:</p>
+                        <p style={{ fontSize: '0.85rem', color: '#f59e0b', fontWeight: '600', marginBottom: '0.75rem' }}>
+                          {isFull ? '🎉 Group is full! Your teammates:' : '🎮 Your group so far:'}
+                        </p>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
                           {/* Show post owner */}
                           <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
@@ -927,30 +971,24 @@ export default function LFG({ theme }) {
                             </div>
                           ))}
                         </div>
-                        {/* Group chat button */}
-                        {post.group_id && (
-                          <button
-                            onClick={() => navigate(`/groups/${post.group_id}`)}
-                            style={{
-                              width: '100%',
-                              marginTop: '0.75rem',
-                              padding: '0.65rem',
-                              background: 'linear-gradient(135deg, #6c63ff, #a78bfa)',
-                              color: 'white',
-                              border: 'none',
-                              borderRadius: '8px',
-                              cursor: 'pointer',
-                              fontFamily: 'Inter, sans-serif',
-                              fontWeight: '600',
-                              fontSize: '0.9rem'
-                            }}
-                          >
-                            🎮 Open Group Chat
-                          </button>
-                        )}
-                        {isCreatingThisGroup && (
-                          <p style={{ textAlign: 'center', color: '#a78bfa', fontSize: '0.85rem', marginTop: '0.75rem' }}>Creating group chat...</p>
-                        )}
+                        <button
+                          onClick={() => navigate(`/groups/${post.group_id}`)}
+                          style={{
+                            width: '100%',
+                            marginTop: '0.75rem',
+                            padding: '0.65rem',
+                            background: 'linear-gradient(135deg, #6c63ff, #a78bfa)',
+                            color: 'white',
+                            border: 'none',
+                            borderRadius: '8px',
+                            cursor: 'pointer',
+                            fontFamily: 'Inter, sans-serif',
+                            fontWeight: '600',
+                            fontSize: '0.9rem'
+                          }}
+                        >
+                          🎮 Open Group Chat
+                        </button>
                       </div>
                     )}
 
@@ -1004,24 +1042,6 @@ export default function LFG({ theme }) {
                           {pendingCount} Request{pendingCount !== 1 ? 's' : ''} →
                         </button>
                       )}
-                      {post.group_id && imAccepted && (
-                        <button
-                          onClick={() => navigate(`/groups/${post.group_id}`)}
-                          style={{
-                            padding: '0.6rem 1.25rem',
-                            background: 'rgba(108,99,255,0.15)',
-                            color: '#a78bfa',
-                            border: '1px solid rgba(108,99,255,0.3)',
-                            borderRadius: '8px',
-                            cursor: 'pointer',
-                            fontFamily: 'Inter, sans-serif',
-                            fontWeight: '600',
-                            fontSize: '0.9rem'
-                          }}
-                        >
-                          🎮 Group Chat
-                        </button>
-                      )}
                     </div>
 
                     {/* Request form */}
@@ -1053,19 +1073,21 @@ export default function LFG({ theme }) {
                           </button>
                           <button
                             onClick={() => sendRequest(post.id)}
+                            disabled={sendingRequest}
                             style={{
                               padding: '0.5rem 1rem',
                               background: 'linear-gradient(135deg, #6c63ff, #a78bfa)',
                               color: 'white',
                               border: 'none',
                               borderRadius: '8px',
-                              cursor: 'pointer',
+                              cursor: sendingRequest ? 'default' : 'pointer',
+                              opacity: sendingRequest ? 0.6 : 1,
                               fontFamily: 'Inter, sans-serif',
                               fontWeight: '600',
                               fontSize: '0.85rem'
                             }}
                           >
-                            Send
+                            {sendingRequest ? 'Sending...' : 'Send'}
                           </button>
                         </div>
                       </div>
