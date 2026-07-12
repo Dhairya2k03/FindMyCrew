@@ -164,6 +164,7 @@ export default function LFG({ theme }) {
     description: ''
   })
   const [creatingGroup, setCreatingGroup] = useState(null)
+  const [respondingId, setRespondingId] = useState(null)
   const navigate = useNavigate()
 
   const isLight = theme === 'light'
@@ -317,7 +318,19 @@ export default function LFG({ theme }) {
     setExpandedPost(null)
   }
 
+  // Guarded wrapper: prevents double-clicks / double-submission from firing
+  // this whole flow twice, which was the root cause of duplicate group members.
   const respondToRequest = async (requestId, postId, status) => {
+    if (respondingId) return
+    setRespondingId(requestId)
+    try {
+      await respondToRequestInner(requestId, postId, status)
+    } finally {
+      setRespondingId(null)
+    }
+  }
+
+  const respondToRequestInner = async (requestId, postId, status) => {
     await supabase.from('lfg_requests').update({ status }).eq('id', requestId)
 
     if (status === 'accepted') {
@@ -334,16 +347,44 @@ export default function LFG({ theme }) {
         })
       }
 
-      // Fetch fresh accepted requests from DB
-      const { data: freshRequests } = await supabase
+      // Re-check against the DB (not stale local state) whether a group
+      // already exists for this post before doing anything else.
+      const { data: freshPost } = await supabase
+        .from('lfg_posts')
+        .select('*')
+        .eq('id', postId)
+        .single()
+
+      if (freshPost?.group_id) {
+        // A group already exists — just make sure this accepted user is a
+        // member, then stop. Upsert makes this safe even if it runs twice.
+        if (req) {
+          await supabase.from('group_members').upsert(
+            { group_id: freshPost.group_id, user_id: req.user_id, status: 'accepted', role: 'member' },
+            { onConflict: 'group_id,user_id', ignoreDuplicates: true }
+          )
+        }
+        return
+      }
+
+      // Fetch fresh accepted requests from DB.
+      // NOTE: this requires an RLS policy allowing the post owner to SELECT
+      // every request row tied to their own post (not just rows where
+      // auth.uid() = user_id), otherwise this silently returns too few rows.
+      const { data: freshRequests, error: freshError } = await supabase
         .from('lfg_requests')
         .select('*')
         .eq('lfg_post_id', postId)
         .eq('status', 'accepted')
 
+      if (freshError) {
+        console.error('Failed to fetch accepted requests:', freshError)
+        return
+      }
+
       const nowAccepted = freshRequests || []
 
-      if (post && nowAccepted.length >= post.slots && !post.group_id) {
+      if (post && nowAccepted.length >= post.slots) {
         await supabase.from('lfg_posts').update({ status: 'full' }).eq('id', postId)
         setCreatingGroup(postId)
 
@@ -357,23 +398,18 @@ export default function LFG({ theme }) {
         }).select().single()
 
         if (!groupError && newGroup) {
-          // Add post owner as leader member
-          await supabase.from('group_members').insert({
-            group_id: newGroup.id,
-            user_id: post.user_id,
-            status: 'accepted',
-            role: 'leader'
-          })
+          // Add post owner as leader — upsert so a re-run can't duplicate this row
+          await supabase.from('group_members').upsert(
+            { group_id: newGroup.id, user_id: post.user_id, status: 'accepted', role: 'leader' },
+            { onConflict: 'group_id,user_id', ignoreDuplicates: true }
+          )
 
-          // Add all accepted requesters
-          const memberInserts = nowAccepted.map(r => ({
-            group_id: newGroup.id,
-            user_id: r.user_id,
-            status: 'accepted',
-            role: 'member'
-          }))
-          if (memberInserts.length > 0) {
-            await supabase.from('group_members').insert(memberInserts)
+          // Add all accepted requesters — upsert each so re-runs are harmless
+          for (const r of nowAccepted) {
+            await supabase.from('group_members').upsert(
+              { group_id: newGroup.id, user_id: r.user_id, status: 'accepted', role: 'member' },
+              { onConflict: 'group_id,user_id', ignoreDuplicates: true }
+            )
           }
 
           await supabase.from('lfg_posts').update({ group_id: newGroup.id }).eq('id', postId)
@@ -1066,29 +1102,33 @@ export default function LFG({ theme }) {
                               <div style={{ display: 'flex', gap: '0.4rem', flexShrink: 0 }}>
                                 <button
                                   onClick={() => respondToRequest(req.id, post.id, 'accepted')}
+                                  disabled={respondingId === req.id}
                                   style={{
                                     padding: '0.35rem 0.75rem',
                                     background: 'rgba(16,185,129,0.2)',
                                     color: '#10b981',
                                     border: '1px solid rgba(16,185,129,0.3)',
                                     borderRadius: '6px',
-                                    cursor: 'pointer',
+                                    cursor: respondingId === req.id ? 'default' : 'pointer',
+                                    opacity: respondingId === req.id ? 0.5 : 1,
                                     fontFamily: 'Inter, sans-serif',
                                     fontSize: '0.82rem',
                                     fontWeight: '600'
                                   }}
                                 >
-                                  Accept
+                                  {respondingId === req.id ? '...' : 'Accept'}
                                 </button>
                                 <button
                                   onClick={() => respondToRequest(req.id, post.id, 'declined')}
+                                  disabled={respondingId === req.id}
                                   style={{
                                     padding: '0.35rem 0.75rem',
                                     background: 'rgba(239,68,68,0.1)',
                                     color: '#ef4444',
                                     border: '1px solid rgba(239,68,68,0.2)',
                                     borderRadius: '6px',
-                                    cursor: 'pointer',
+                                    cursor: respondingId === req.id ? 'default' : 'pointer',
+                                    opacity: respondingId === req.id ? 0.5 : 1,
                                     fontFamily: 'Inter, sans-serif',
                                     fontSize: '0.82rem',
                                     fontWeight: '600'
