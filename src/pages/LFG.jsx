@@ -536,10 +536,16 @@ export default function LFG({ theme }) {
   }
 
   const filtered = posts.filter(p => {
+    const isMine = p.user_id === currentUser?.id
+    const myReq = (requests[p.id] || []).find(r => r.user_id === currentUser?.id)
+    const amInSquad = isMine || myReq?.status === 'accepted'
+
     if (filters.game && !p.game?.toLowerCase().includes(filters.game.toLowerCase())) return false
     if (filters.region && filters.region !== 'Any' && p.region !== filters.region) return false
     if (filters.mode && filters.mode !== 'Any' && p.mode !== filters.mode) return false
-    if (filters.status && p.status !== filters.status) return false
+    // Status filter never hides a post you own or are already in — only
+    // affects posts you're browsing to potentially join.
+    if (filters.status && p.status !== filters.status && !amInSquad) return false
     return true
   })
 
