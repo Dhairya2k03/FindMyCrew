@@ -41,6 +41,7 @@ export default function Groups({ theme }) {
   const [newGroupCategory, setNewGroupCategory] = useState('casual')
   const [search, setSearch] = useState('')
   const [filterCategory, setFilterCategory] = useState('')
+  const [deletingGroupId, setDeletingGroupId] = useState(null)
   const navigate = useNavigate()
 
   useEffect(() => {
@@ -98,6 +99,51 @@ export default function Groups({ theme }) {
     await supabase.from('group_members').delete().eq('id', membershipId)
     setMyMemberships(prev => { const n = { ...prev }; delete n[groupId]; return n })
     setMembershipIds(prev => { const n = { ...prev }; delete n[groupId]; return n })
+  }
+
+  const deleteGroup = async (groupId, e) => {
+    e.stopPropagation()
+    const confirmed = window.confirm(
+      'Delete this group permanently? This will remove all messages, members, and polls, and cannot be undone.'
+    )
+    if (!confirmed) return
+
+    setDeletingGroupId(groupId)
+    try {
+      // Reactions on this group's messages
+      const { data: msgs } = await supabase.from('group_messages').select('id').eq('group_id', groupId)
+      const messageIds = msgs?.map(m => m.id) || []
+      if (messageIds.length > 0) {
+        await supabase.from('message_reactions').delete().in('message_id', messageIds)
+      }
+      await supabase.from('group_messages').delete().eq('group_id', groupId)
+
+      // Polls and their votes
+      const { data: pollsData } = await supabase.from('group_polls').select('id').eq('group_id', groupId)
+      const pollIds = pollsData?.map(p => p.id) || []
+      if (pollIds.length > 0) {
+        await supabase.from('group_poll_votes').delete().in('poll_id', pollIds)
+      }
+      await supabase.from('group_polls').delete().eq('group_id', groupId)
+
+      // Members
+      await supabase.from('group_members').delete().eq('group_id', groupId)
+
+      // Unlink any LFG post that spawned this group, so the post itself survives
+      await supabase.from('lfg_posts').update({ group_id: null }).eq('group_id', groupId)
+
+      // Finally, the group itself
+      const { error } = await supabase.from('groups').delete().eq('id', groupId)
+      if (error) throw error
+
+      setGroups(prev => prev.filter(g => g.id !== groupId))
+      setMyMemberships(prev => { const n = { ...prev }; delete n[groupId]; return n })
+      setMembershipIds(prev => { const n = { ...prev }; delete n[groupId]; return n })
+    } catch (err) {
+      alert('Failed to delete group: ' + err.message)
+    } finally {
+      setDeletingGroupId(null)
+    }
   }
 
   const filtered = groups.filter(g => {
@@ -197,8 +243,9 @@ export default function Groups({ theme }) {
           {filtered.map(group => {
             const isLeader = group.leader_id === user?.id
             const status = myMemberships[group.id]
+            const isDeleting = deletingGroupId === group.id
             return (
-              <div key={group.id} style={{ background: cardBg, border: `1px solid ${cardBorder}`, borderRadius: '16px', padding: '1.25rem 1.5rem' }}>
+              <div key={group.id} style={{ background: cardBg, border: `1px solid ${cardBorder}`, borderRadius: '16px', padding: '1.25rem 1.5rem', opacity: isDeleting ? 0.5 : 1 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
                   <div style={{ width: '48px', height: '48px', borderRadius: '12px', background: 'linear-gradient(135deg, #6c63ff, #a78bfa)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.3rem', flexShrink: 0 }}>
                     🎮
@@ -231,6 +278,26 @@ export default function Groups({ theme }) {
                         style={{ padding: '0.5rem 0.9rem', background: 'transparent', color: '#ef4444', border: '1px solid rgba(239,68,68,0.3)', borderRadius: '8px', cursor: 'pointer', fontFamily: 'Inter, sans-serif', fontWeight: '600', fontSize: '0.85rem' }}
                       >
                         Leave
+                      </button>
+                    )}
+                    {/* Delete button — leader only */}
+                    {isLeader && (
+                      <button
+                        onClick={(e) => deleteGroup(group.id, e)}
+                        disabled={isDeleting}
+                        style={{
+                          padding: '0.5rem 0.9rem',
+                          background: 'transparent',
+                          color: '#ef4444',
+                          border: '1px solid rgba(239,68,68,0.3)',
+                          borderRadius: '8px',
+                          cursor: isDeleting ? 'default' : 'pointer',
+                          fontFamily: 'Inter, sans-serif',
+                          fontWeight: '600',
+                          fontSize: '0.85rem'
+                        }}
+                      >
+                        {isDeleting ? 'Deleting...' : '🗑️ Delete'}
                       </button>
                     )}
                     <button onClick={() => { if (!myMemberships[group.id] && !isLeader) requestJoin(group.id) }} style={getButtonStyle(group)}>
