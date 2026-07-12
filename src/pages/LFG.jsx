@@ -165,11 +165,6 @@ export default function LFG({ theme }) {
   })
   const [respondingId, setRespondingId] = useState(null)
   const [sendingRequest, setSendingRequest] = useState(false)
-  const [chatOpenPost, setChatOpenPost] = useState(null)
-  const [messages, setMessages] = useState({})
-  const [chatDraft, setChatDraft] = useState('')
-  const [sendingMessage, setSendingMessage] = useState(false)
-  const messagesEndRef = useRef(null)
   const navigate = useNavigate()
 
   const isLight = theme === 'light'
@@ -213,6 +208,9 @@ export default function LFG({ theme }) {
         loadProfileForUser(payload.new.user_id)
       })
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'lfg_posts' }, payload => {
+        // Also catches group_id being cleared when a group is deleted, via
+        // the ON DELETE SET NULL foreign key — so the "Group Chat" button
+        // disappears for every viewer automatically, no manual cleanup.
         setPosts(prev => prev.map(p => p.id === payload.new.id ? payload.new : p))
       })
       .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'lfg_posts' }, payload => {
@@ -233,14 +231,11 @@ export default function LFG({ theme }) {
           [r.lfg_post_id]: (prev[r.lfg_post_id] || []).map(x => x.id === r.id ? r : x)
         }))
       })
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'lfg_messages' }, payload => {
-        const m = payload.new
-        setMessages(prev => {
-          const existing = prev[m.lfg_post_id] || []
-          if (existing.some(x => x.id === m.id)) return prev
-          return { ...prev, [m.lfg_post_id]: [...existing, m] }
-        })
-        loadProfileForUser(m.user_id)
+      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'groups' }, payload => {
+        // Defensive fallback in case the FK ever isn't set to ON DELETE
+        // SET NULL — clears the group locally either way.
+        const deletedGroupId = payload.old.id
+        setPosts(prev => prev.map(p => p.group_id === deletedGroupId ? { ...p, group_id: null } : p))
       })
       .subscribe()
 
@@ -322,8 +317,7 @@ export default function LFG({ theme }) {
   }
 
   // Guarded: prevents a double-click / slow-network double-tap from
-  // inserting two lfg_requests rows for the same user on the same post
-  // (which was the root cause of one account showing up twice).
+  // inserting two lfg_requests rows for the same user on the same post.
   const sendRequest = async (postId) => {
     if (sendingRequest) return
     const post = posts.find(p => p.id === postId)
@@ -340,8 +334,7 @@ export default function LFG({ theme }) {
         user_id: currentUser.id,
         message: myRequestMessage.trim() || null
       })
-      // 23505 = unique_violation, thrown if the DB unique constraint catches
-      // a race the client-side check missed. Treat it as a harmless no-op.
+      // 23505 = unique_violation from the DB constraint — harmless no-op.
       if (error && error.code !== '23505') return alert(error.message)
       setMyRequestMessage('')
       setExpandedPost(null)
@@ -362,109 +355,31 @@ export default function LFG({ theme }) {
     }
   }
 
-  // Accepting a request no longer creates any separate "group" record.
-  // Who's "in the squad" is simply: the post owner + everyone with an
-  // accepted lfg_requests row. That means there's nothing to duplicate,
-  // nothing to race-condition-create-twice, and nothing left behind when
-  // the post is deleted (lfg_messages cascades with it).
+  // All the "find or create the group, add the member, notify, mark full"
+  // logic now lives in a single Postgres function (accept_lfg_request) that
+  // runs as ONE transaction. That means two people getting accepted at the
+  // same instant can never create two groups or duplicate member rows —
+  // Postgres guarantees it via a row lock + unique constraint, not JS timing.
   const respondToRequestInner = async (requestId, postId, status) => {
-    const { data: updatedReq, error: updateErr } = await supabase
-      .from('lfg_requests')
-      .update({ status })
-      .eq('id', requestId)
-      .select()
-      .single()
-
-    if (updateErr || !updatedReq) {
-      console.error('Failed to update request:', updateErr)
+    if (status !== 'accepted') {
+      const { error } = await supabase.from('lfg_requests').update({ status }).eq('id', requestId)
+      if (error) console.error('Failed to update request:', error)
       return
     }
 
-    if (status !== 'accepted') return
-
-    const { data: freshPost, error: postErr } = await supabase
-      .from('lfg_posts')
-      .select('*')
-      .eq('id', postId)
-      .single()
-
-    if (postErr || !freshPost) {
-      console.error('Failed to load post:', postErr)
-      return
-    }
-
-    await supabase.from('notifications').insert({
-      user_id: updatedReq.user_id,
-      type: 'lfg_accepted',
-      content: `✅ Your LFG request for "${freshPost.game}" was accepted! You're in the squad chat now.`,
-      read: false
+    const { data: groupId, error } = await supabase.rpc('accept_lfg_request', {
+      p_request_id: requestId,
+      p_status: status
     })
 
-    // Purely cosmetic: mark the post "full" once enough people are in,
-    // so new players stop seeing it as open.
-    const { data: acceptedRows } = await supabase
-      .from('lfg_requests')
-      .select('user_id')
-      .eq('lfg_post_id', postId)
-      .eq('status', 'accepted')
-
-    const uniqueAcceptedCount = new Set((acceptedRows || []).map(r => r.user_id)).size
-    if (uniqueAcceptedCount >= freshPost.slots) {
-      await supabase.from('lfg_posts').update({ status: 'full' }).eq('id', postId)
-    }
-
-    // Auto-open the chat panel for the owner so they immediately see the
-    // new teammate land in it.
-    setChatOpenPost(postId)
-    loadMessages(postId)
-  }
-
-  const loadMessages = async (postId) => {
-    const { data, error } = await supabase
-      .from('lfg_messages')
-      .select('*')
-      .eq('lfg_post_id', postId)
-      .order('created_at', { ascending: true })
     if (error) {
-      console.error('Failed to load messages:', error)
+      console.error('Failed to accept request:', error)
+      alert(error.message)
       return
     }
-    setMessages(prev => ({ ...prev, [postId]: data || [] }))
-    const senderIds = [...new Set((data || []).map(m => m.user_id))]
-    senderIds.forEach(loadProfileForUser)
-  }
 
-  const toggleChat = (postId) => {
-    if (chatOpenPost === postId) {
-      setChatOpenPost(null)
-      return
-    }
-    setChatOpenPost(postId)
-    if (!messages[postId]) loadMessages(postId)
+    if (groupId) navigate(`/groups/${groupId}`)
   }
-
-  const sendChatMessage = async (postId) => {
-    const content = chatDraft.trim()
-    if (!content || sendingMessage) return
-    setSendingMessage(true)
-    try {
-      const { error } = await supabase.from('lfg_messages').insert({
-        lfg_post_id: postId,
-        user_id: currentUser.id,
-        content
-      })
-      if (error) return alert(error.message)
-      setChatDraft('')
-    } finally {
-      setSendingMessage(false)
-    }
-  }
-
-  useEffect(() => {
-    if (chatOpenPost && messagesEndRef.current) {
-      messagesEndRef.current.scrollIntoView({ behavior: 'smooth' })
-    }
-  }, [messages, chatOpenPost])
 
   const closePost = async (postId) => {
     await supabase.from('lfg_posts').update({ status: 'closed' }).eq('id', postId)
@@ -766,7 +681,6 @@ export default function LFG({ theme }) {
               const myRequest = postRequests.find(r => r.user_id === currentUser?.id)
 
               // Dedupe accepted requests by user_id so a stray duplicate row
-              // (old data, or a race that slipped past the DB constraint)
               // can never render the same person twice.
               const acceptedRequests = Array.from(
                 new Map(
@@ -780,12 +694,7 @@ export default function LFG({ theme }) {
               const isFull = post.status === 'full'
 
               const imAccepted = myRequest?.status === 'accepted' || isOwn
-              // "Squad" membership is computed, not stored: owner + anyone
-              // with an accepted request. Chat becomes available the moment
-              // there's at least one accepted person.
-              const hasSquad = acceptedCount > 0
-              const isChatOpen = chatOpenPost === post.id
-              const postMessages = messages[post.id] || []
+              const hasGroup = !!post.group_id
 
               return (
                 <div
@@ -921,113 +830,82 @@ export default function LFG({ theme }) {
                       </div>
                     </div>
 
-                    {/* Squad panel — membership is computed live from accepted
-                        requests, nothing stored separately. Deleting the post
-                        removes this chat for everyone automatically. */}
-                    {hasSquad && imAccepted && (
+                    {/* Group reveal — shows as soon as a group exists, not just when full */}
+                    {hasGroup && imAccepted && (
                       <div style={{ background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.2)', borderRadius: '12px', padding: '1rem', marginBottom: '1rem' }}>
-                        <div
-                          onClick={() => toggleChat(post.id)}
-                          style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer' }}
-                        >
-                          <p style={{ fontSize: '0.85rem', color: '#f59e0b', fontWeight: '600', margin: 0 }}>
-                            {isFull ? '🎉 Squad is full · ' : '🎮 Squad so far · '}
-                            {acceptedCount + 1} player{acceptedCount + 1 !== 1 ? 's' : ''}
-                          </p>
-                          <span style={{ color: '#f59e0b', fontSize: '0.8rem' }}>{isChatOpen ? '▲ Hide chat' : '▼ Open chat'}</span>
-                        </div>
-
-                        <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.75rem', flexWrap: 'wrap' }}>
-                          <div title={getName(post.user_id)} style={{ position: 'relative' }}>
-                            <Avatar userId={post.user_id} size={30} />
-                            <span style={{ position: 'absolute', bottom: -2, right: -2, fontSize: '0.7rem' }}>👑</span>
+                        <p style={{ fontSize: '0.85rem', color: '#f59e0b', fontWeight: '600', marginBottom: '0.75rem' }}>
+                          {isFull ? '🎉 Group is full! Your teammates:' : '🎮 Your group so far:'}
+                        </p>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                            <Avatar userId={post.user_id} size={32} />
+                            <div style={{ flex: 1 }}>
+                              <p style={{ fontSize: '0.88rem', color: textColor, fontWeight: '600', margin: 0 }}>
+                                {getName(post.user_id)} <span style={{ color: '#f59e0b', fontSize: '0.75rem' }}>👑 Host</span>
+                              </p>
+                            </div>
+                            {post.user_id !== currentUser?.id && (
+                              <button
+                                onClick={() => navigate(`/chat/${post.user_id}`)}
+                                style={{
+                                  padding: '0.3rem 0.7rem',
+                                  background: 'rgba(108,99,255,0.15)',
+                                  color: '#a78bfa',
+                                  border: '1px solid rgba(108,99,255,0.3)',
+                                  borderRadius: '6px',
+                                  cursor: 'pointer',
+                                  fontFamily: 'Inter, sans-serif',
+                                  fontSize: '0.78rem',
+                                  fontWeight: '600'
+                                }}
+                              >
+                                💬 DM
+                              </button>
+                            )}
                           </div>
                           {acceptedRequests.map(req => (
-                            <div key={req.id} title={getName(req.user_id)}>
-                              <Avatar userId={req.user_id} size={30} />
+                            <div key={req.id} style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                              <Avatar userId={req.user_id} size={32} />
+                              <p style={{ fontSize: '0.88rem', color: textColor, fontWeight: '500', flex: 1, margin: 0 }}>{getName(req.user_id)}</p>
+                              {req.user_id !== currentUser?.id && (
+                                <button
+                                  onClick={() => navigate(`/chat/${req.user_id}`)}
+                                  style={{
+                                    padding: '0.3rem 0.7rem',
+                                    background: 'rgba(108,99,255,0.15)',
+                                    color: '#a78bfa',
+                                    border: '1px solid rgba(108,99,255,0.3)',
+                                    borderRadius: '6px',
+                                    cursor: 'pointer',
+                                    fontFamily: 'Inter, sans-serif',
+                                    fontSize: '0.78rem',
+                                    fontWeight: '600'
+                                  }}
+                                >
+                                  💬 DM
+                                </button>
+                              )}
                             </div>
                           ))}
                         </div>
-
-                        {isChatOpen && (
-                          <div style={{ marginTop: '0.9rem' }}>
-                            <div
-                              style={{
-                                maxHeight: '260px',
-                                overflowY: 'auto',
-                                display: 'flex',
-                                flexDirection: 'column',
-                                gap: '0.6rem',
-                                padding: '0.75rem',
-                                background: isLight ? 'rgba(255,255,255,0.6)' : 'rgba(0,0,0,0.2)',
-                                borderRadius: '10px',
-                                marginBottom: '0.6rem'
-                              }}
-                            >
-                              {postMessages.length === 0 ? (
-                                <p style={{ fontSize: '0.82rem', color: mutedColor, textAlign: 'center', margin: '0.5rem 0' }}>
-                                  No messages yet. Say hey to your squad!
-                                </p>
-                              ) : (
-                                postMessages.map(m => {
-                                  const mine = m.user_id === currentUser?.id
-                                  return (
-                                    <div key={m.id} style={{ display: 'flex', gap: '0.5rem', alignItems: 'flex-start', flexDirection: mine ? 'row-reverse' : 'row' }}>
-                                      <Avatar userId={m.user_id} size={26} />
-                                      <div style={{ maxWidth: '75%' }}>
-                                        <p style={{ margin: 0, fontSize: '0.72rem', color: mutedColor, textAlign: mine ? 'right' : 'left' }}>
-                                          {getName(m.user_id)} · {formatTime(m.created_at)}
-                                        </p>
-                                        <p
-                                          style={{
-                                            margin: '0.15rem 0 0',
-                                            fontSize: '0.87rem',
-                                            color: textColor,
-                                            background: mine ? 'rgba(108,99,255,0.18)' : (isLight ? 'rgba(0,0,0,0.05)' : 'rgba(255,255,255,0.06)'),
-                                            padding: '0.5rem 0.7rem',
-                                            borderRadius: '10px',
-                                            wordBreak: 'break-word'
-                                          }}
-                                        >
-                                          {m.content}
-                                        </p>
-                                      </div>
-                                    </div>
-                                  )
-                                })
-                              )}
-                              <div ref={messagesEndRef} />
-                            </div>
-                            <div style={{ display: 'flex', gap: '0.5rem' }}>
-                              <input
-                                type="text"
-                                placeholder="Message your squad..."
-                                value={chatDraft}
-                                onChange={e => setChatDraft(e.target.value)}
-                                onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChatMessage(post.id) } }}
-                                style={{ ...inputStyle, flex: 1 }}
-                              />
-                              <button
-                                onClick={() => sendChatMessage(post.id)}
-                                disabled={sendingMessage || !chatDraft.trim()}
-                                style={{
-                                  padding: '0 1.1rem',
-                                  background: 'linear-gradient(135deg, #6c63ff, #a78bfa)',
-                                  color: 'white',
-                                  border: 'none',
-                                  borderRadius: '8px',
-                                  cursor: sendingMessage || !chatDraft.trim() ? 'default' : 'pointer',
-                                  opacity: sendingMessage || !chatDraft.trim() ? 0.5 : 1,
-                                  fontFamily: 'Inter, sans-serif',
-                                  fontWeight: '600',
-                                  fontSize: '0.85rem'
-                                }}
-                              >
-                                Send
-                              </button>
-                            </div>
-                          </div>
-                        )}
+                        <button
+                          onClick={() => navigate(`/groups/${post.group_id}`)}
+                          style={{
+                            width: '100%',
+                            marginTop: '0.75rem',
+                            padding: '0.65rem',
+                            background: 'linear-gradient(135deg, #6c63ff, #a78bfa)',
+                            color: 'white',
+                            border: 'none',
+                            borderRadius: '8px',
+                            cursor: 'pointer',
+                            fontFamily: 'Inter, sans-serif',
+                            fontWeight: '600',
+                            fontSize: '0.9rem'
+                          }}
+                        >
+                          🎮 Open Group Chat
+                        </button>
                       </div>
                     )}
 
@@ -1079,6 +957,24 @@ export default function LFG({ theme }) {
                           }}
                         >
                           {pendingCount} Request{pendingCount !== 1 ? 's' : ''} →
+                        </button>
+                      )}
+                      {post.group_id && imAccepted && (
+                        <button
+                          onClick={() => navigate(`/groups/${post.group_id}`)}
+                          style={{
+                            padding: '0.6rem 1.25rem',
+                            background: 'rgba(108,99,255,0.15)',
+                            color: '#a78bfa',
+                            border: '1px solid rgba(108,99,255,0.3)',
+                            borderRadius: '8px',
+                            cursor: 'pointer',
+                            fontFamily: 'Inter, sans-serif',
+                            fontWeight: '600',
+                            fontSize: '0.9rem'
+                          }}
+                        >
+                          🎮 Group Chat
                         </button>
                       )}
                     </div>
