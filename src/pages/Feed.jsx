@@ -153,13 +153,25 @@ export default function Feed({ theme }) {
   const toggleFollowUser = async (targetUserId) => {
     const isCurrentlyFollowing = followingMap[targetUserId]
     if (isCurrentlyFollowing) {
-      await supabase.from('follows').delete().eq('follower_id', currentUser.id).eq('following_id', targetUserId)
       setFollowingMap(prev => { const n = { ...prev }; delete n[targetUserId]; return n })
       setFollowingIds(prev => prev.filter(id => id !== targetUserId))
+      const { error } = await supabase.from('follows').delete().eq('follower_id', currentUser.id).eq('following_id', targetUserId)
+      if (error) {
+        // Revert on error
+        setFollowingMap(prev => ({ ...prev, [targetUserId]: true }))
+        setFollowingIds(prev => [...prev, targetUserId])
+        alert(error.message)
+      }
     } else {
-      await supabase.from('follows').insert({ follower_id: currentUser.id, following_id: targetUserId })
       setFollowingMap(prev => ({ ...prev, [targetUserId]: true }))
       setFollowingIds(prev => [...prev, targetUserId])
+      const { error } = await supabase.from('follows').insert({ follower_id: currentUser.id, following_id: targetUserId })
+      if (error) {
+        // Revert on error
+        setFollowingMap(prev => { const n = { ...prev }; delete n[targetUserId]; return n })
+        setFollowingIds(prev => prev.filter(id => id !== targetUserId))
+        alert(error.message)
+      }
     }
   }
 
