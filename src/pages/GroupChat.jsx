@@ -553,8 +553,27 @@ export default function GroupChat({ theme }) {
       <div>
         <button onClick={() => navigate('/groups')} style={{ background: 'none', border: 'none', color: mutedColor, cursor: 'pointer', fontFamily: 'Inter, sans-serif', marginBottom: '1rem', padding: 0, fontSize: '0.9rem' }}>← Back to Groups</button>
         {canManageMembers && <button onClick={generateInvite} style={{ width: '100%', padding: '0.6rem', background: 'rgba(108,99,255,0.15)', color: '#a78bfa', border: '1px solid rgba(108,99,255,0.3)', borderRadius: '8px', cursor: 'pointer', fontFamily: 'Inter, sans-serif', fontWeight: '600', fontSize: '0.85rem', marginBottom: '0.75rem' }}>🔗 Copy Invite Link</button>}
-        <h3 style={{ fontWeight: '700', fontSize: '1.1rem', marginBottom: '0.25rem', color: textColor }}>{group?.name}</h3>
-        <p style={{ color: '#a78bfa', fontSize: '0.85rem' }}>{group?.game}</p>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '0.75rem' }}>
+          <div style={{ position: 'relative', flexShrink: 0 }}>
+            {group?.icon_url ? (
+              <img src={group.icon_url} alt={group.name} style={{ width: '52px', height: '52px', borderRadius: '12px', objectFit: 'cover' }} />
+            ) : (
+              <div style={{ width: '52px', height: '52px', borderRadius: '12px', background: 'rgba(108,99,255,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.5rem' }}>🎮</div>
+            )}
+            {isLeader && (
+              <>
+                <input type='file' accept='image/*' ref={iconInputRef} onChange={uploadGroupIcon} style={{ display: 'none' }} />
+                <button onClick={() => iconInputRef.current.click()} disabled={uploadingIcon} style={{ position: 'absolute', bottom: '-4px', right: '-4px', width: '20px', height: '20px', borderRadius: '50%', background: '#6c63ff', border: '2px solid ' + bg, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.6rem' }}>
+                  {uploadingIcon ? '⏳' : '✏️'}
+                </button>
+              </>
+            )}
+          </div>
+          <div>
+            <h3 style={{ fontWeight: '700', fontSize: '1.05rem', margin: 0, color: textColor }}>{group?.name}</h3>
+            <p style={{ color: '#a78bfa', fontSize: '0.82rem', margin: 0 }}>{group?.game}</p>
+          </div>
+        </div>
         <div style={{ marginTop: '0.5rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <span style={{ fontSize: '0.75rem', color: ROLE_CONFIG[myRole]?.color || mutedColor }}>You are: {ROLE_CONFIG[myRole]?.label || 'Member'}</span>
           {!isLeader && myMembershipId && (
