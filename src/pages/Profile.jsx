@@ -25,6 +25,9 @@ export default function Profile() {
   const [searching, setSearching] = useState(false)
   const [avatarUrl, setAvatarUrl] = useState(null)
   const [uploadingAvatar, setUploadingAvatar] = useState(false)
+  const [stats, setStats] = useState({ posts: 0, likesReceived: 0, connections: 0, groups: 0 })
+  const [statsLoading, setStatsLoading] = useState(true)
+  const [memberSince, setMemberSince] = useState(null)
   const navigate = useNavigate()
   const searchTimeout = useRef(null)
   const avatarInputRef = useRef(null)
@@ -33,6 +36,7 @@ export default function Profile() {
     const load = async () => {
       const { data: { user } } = await supabase.auth.getUser()
       setUser(user)
+      setMemberSince(user?.created_at || null)
       const { data } = await supabase.from('profiles').select('*').eq('id', user.id).single()
       if (data) {
         setUsername(data.username || '')
@@ -41,10 +45,54 @@ export default function Profile() {
         setSelectedPlatforms(data.platforms || [])
         setSelectedGames(data.hobbies || [])
         setAvatarUrl(data.avatar_url || null)
+        if (data.created_at) setMemberSince(data.created_at)
       }
+      await loadStats(user.id)
     }
     load()
   }, [])
+
+  const loadStats = async (userId) => {
+    setStatsLoading(true)
+    try {
+      const { count: postsCount } = await supabase
+        .from('posts')
+        .select('id', { count: 'exact', head: true })
+        .eq('user_id', userId)
+
+      const { data: userPosts } = await supabase.from('posts').select('id').eq('user_id', userId)
+      const postIds = userPosts?.map(p => p.id) || []
+      let likesReceived = 0
+      if (postIds.length > 0) {
+        const { count } = await supabase
+          .from('post_likes')
+          .select('id', { count: 'exact', head: true })
+          .in('post_id', postIds)
+        likesReceived = count || 0
+      }
+
+      const { count: connectionsCount } = await supabase
+        .from('connections')
+        .select('id', { count: 'exact', head: true })
+        .or(`user_id_1.eq.${userId},user_id_2.eq.${userId}`)
+        .eq('status', 'accepted')
+
+      const { count: groupsCount } = await supabase
+        .from('group_members')
+        .select('id', { count: 'exact', head: true })
+        .eq('user_id', userId)
+
+      setStats({
+        posts: postsCount || 0,
+        likesReceived,
+        connections: connectionsCount || 0,
+        groups: groupsCount || 0,
+      })
+    } catch (err) {
+      console.error('Failed to load stats:', err)
+    }
+    setStatsLoading(false)
+  }
 
   const uploadAvatar = async (e) => {
     const file = e.target.files[0]
@@ -121,12 +169,24 @@ export default function Profile() {
   const inputStyle = { padding: '0.85rem 1rem', width: '100%', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.1)', marginBottom: '2rem', fontSize: '1rem', background: 'rgba(255,255,255,0.05)', color: 'white', fontFamily: 'Inter, sans-serif', outline: 'none', boxSizing: 'border-box' }
   const labelStyle = { display: 'block', marginBottom: '0.5rem', fontWeight: '500', color: '#aaa', fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '0.05em' }
 
+  const formatMemberSince = (date) => {
+    if (!date) return '—'
+    return new Date(date).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })
+  }
+
+  const STAT_CARDS = [
+    { key: 'posts', label: 'Posts', icon: '📝' },
+    { key: 'likesReceived', label: 'Likes Received', icon: '❤️' },
+    { key: 'connections', label: 'Connections', icon: '🤝' },
+    { key: 'groups', label: 'Groups', icon: '👥' },
+  ]
+
   return (
     <div style={{ padding: '2rem', maxWidth: '650px', margin: '0 auto' }}>
       <h2 style={{ fontSize: '1.75rem', fontWeight: '700', marginBottom: '2rem' }}>Your Profile</h2>
 
       {/* Avatar */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginBottom: '2rem', padding: '1.5rem', background: 'rgba(255,255,255,0.03)', borderRadius: '16px', border: '1px solid rgba(255,255,255,0.08)' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginBottom: '1.5rem', padding: '1.5rem', background: 'rgba(255,255,255,0.03)', borderRadius: '16px', border: '1px solid rgba(255,255,255,0.08)' }}>
         <div style={{ position: 'relative', flexShrink: 0 }}>
           {avatarUrl ? (
             <img src={avatarUrl} alt="avatar" style={{ width: '64px', height: '64px', borderRadius: '50%', objectFit: 'cover' }} />
@@ -146,6 +206,25 @@ export default function Profile() {
           <p style={{ color: '#a78bfa', fontSize: '0.8rem', marginTop: '0.25rem', cursor: 'pointer' }} onClick={() => avatarInputRef.current.click()}>
             {uploadingAvatar ? 'Uploading...' : 'Change photo'}
           </p>
+        </div>
+      </div>
+
+      {/* Stats & Activity */}
+      <div style={{ marginBottom: '2rem', padding: '1.5rem', background: 'rgba(255,255,255,0.03)', borderRadius: '16px', border: '1px solid rgba(255,255,255,0.08)' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
+          <p style={{ fontWeight: '600', fontSize: '0.95rem', margin: 0 }}>Stats & Activity</p>
+          <p style={{ color: '#666', fontSize: '0.78rem', margin: 0 }}>Member since {formatMemberSince(memberSince)}</p>
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '0.75rem' }}>
+          {STAT_CARDS.map(card => (
+            <div key={card.key} style={{ textAlign: 'center', padding: '0.85rem 0.5rem', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '12px' }}>
+              <p style={{ fontSize: '1.3rem', marginBottom: '0.25rem' }}>{card.icon}</p>
+              <p style={{ fontSize: '1.25rem', fontWeight: '700', margin: 0, color: '#a78bfa' }}>
+                {statsLoading ? '–' : stats[card.key]}
+              </p>
+              <p style={{ fontSize: '0.72rem', color: '#888', margin: '0.15rem 0 0' }}>{card.label}</p>
+            </div>
+          ))}
         </div>
       </div>
 
