@@ -360,6 +360,34 @@ export default function GroupChat({ theme }) {
     }
   }
 
+  
+  const uploadGroupIcon = async (e) => {
+    const file = e.target.files[0]
+    if (!file) return
+    if (!file.type.startsWith('image/')) return alert('Please select an image')
+    if (file.size > 3 * 1024 * 1024) return alert('Image must be under 3MB')
+    setUploadingIcon(true)
+    const canvas = document.createElement('canvas')
+    canvas.width = 200
+    canvas.height = 200
+    const ctx = canvas.getContext('2d')
+    const img = new Image()
+    img.onload = async () => {
+      const size = Math.min(img.width, img.height)
+      ctx.drawImage(img, (img.width - size) / 2, (img.height - size) / 2, size, size, 0, 0, 200, 200)
+      canvas.toBlob(async (blob) => {
+        const fileName = 'group-icons/' + groupId + '-' + Date.now() + '.png'
+        const { error: uploadError } = await supabase.storage.from('avatars').upload(fileName, blob, { contentType: 'image/png', upsert: true })
+        if (uploadError) { alert('Upload failed: ' + uploadError.message); setUploadingIcon(false); return }
+        const { data: { publicUrl } } = supabase.storage.from('avatars').getPublicUrl(fileName)
+        await supabase.from('groups').update({ icon_url: publicUrl }).eq('id', groupId)
+        setGroup(prev => ({ ...prev, icon_url: publicUrl }))
+        setUploadingIcon(false)
+      }, 'image/png')
+    }
+    img.src = URL.createObjectURL(file)
+  }
+
   const generateInvite = async () => {
     const code = Math.random().toString(36).substring(2, 10)
     await supabase.from('groups').update({ invite_code: code }).eq('id', groupId)
