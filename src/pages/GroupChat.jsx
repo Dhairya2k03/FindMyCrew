@@ -54,6 +54,8 @@ export default function GroupChat({ theme }) {
   const [showMentions, setShowMentions] = useState(false)
   const [mentionQuery, setMentionQuery] = useState('')
   const bottomRef = useRef(null)
+  const iconInputRef = useRef(null)
+  const [uploadingIcon, setUploadingIcon] = useState(false)
   const searchInputRef = useRef(null)
   const msgRefs = useRef({})
 
