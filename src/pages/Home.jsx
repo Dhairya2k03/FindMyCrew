@@ -33,21 +33,16 @@ export default function Home({ theme }) {
   }, [])
 
   const loadSuggestions = async (user) => {
-    // Get current user's games
     const { data: myProfile } = await supabase.from('profiles').select('hobbies').eq('id', user.id).single()
     const myGames = myProfile?.hobbies || []
 
-    // Get existing connections
     const { data: conns } = await supabase.from('connections').select('sender_id, receiver_id').or(`sender_id.eq.${user.id},receiver_id.eq.${user.id}`)
     const connectedIds = new Set(conns?.map(c => c.sender_id === user.id ? c.receiver_id : c.sender_id) || [])
     connectedIds.add(user.id)
 
-    // Get all profiles with games
     const { data: allProfiles } = await supabase.from('profiles').select('id, username, avatar_url, hobbies').neq('id', user.id).limit(50)
-
     if (!allProfiles) return
 
-    // Score by mutual games
     const scored = allProfiles
       .filter(p => !connectedIds.has(p.id))
       .map(p => {
@@ -93,8 +88,11 @@ export default function Home({ theme }) {
             <button onClick={() => navigate('/browse')} style={{ padding: '0.9rem 2rem', background: 'linear-gradient(135deg, #6c63ff, #a78bfa)', color: 'white', border: 'none', borderRadius: '12px', fontSize: '1rem', fontWeight: '700', cursor: 'pointer', fontFamily: 'Inter, sans-serif', boxShadow: '0 0 30px rgba(108,99,255,0.4)' }}>
               Find Players →
             </button>
+            <button onClick={() => navigate('/game-levels')} style={{ padding: '0.9rem 2rem', background: 'transparent', color: textColor, border: `1px solid ${border}`, borderRadius: '12px', fontSize: '1rem', fontWeight: '600', cursor: 'pointer', fontFamily: 'Inter, sans-serif' }}>
+              🎮 Set Up Gaming Profile
+            </button>
             <button onClick={() => navigate('/groups')} style={{ padding: '0.9rem 2rem', background: 'transparent', color: textColor, border: `1px solid ${border}`, borderRadius: '12px', fontSize: '1rem', fontWeight: '600', cursor: 'pointer', fontFamily: 'Inter, sans-serif' }}>
-              Browse Groups
+              👥 Browse Groups
             </button>
           </div>
         ) : (
@@ -140,7 +138,6 @@ export default function Home({ theme }) {
                     </div>
                   </div>
 
-                  {/* Mutual games */}
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem' }}>
                     {p.mutualGames.slice(0, 3).map(g => (
                       <span key={g} style={{ background: 'rgba(108,99,255,0.1)', color: '#a78bfa', border: '1px solid rgba(108,99,255,0.2)', borderRadius: '100px', padding: '0.15rem 0.6rem', fontSize: '0.72rem', fontWeight: '500' }}>
@@ -152,25 +149,31 @@ export default function Home({ theme }) {
                     )}
                   </div>
 
-                  {/* Actions */}
                   <div style={{ display: 'flex', gap: '0.5rem' }}>
-                    <button
-                      onClick={() => navigate(`/user/${p.id}`)}
-                      style={{ flex: 1, padding: '0.5rem', background: 'transparent', color: mutedColor, border: `1px solid ${border}`, borderRadius: '8px', cursor: 'pointer', fontFamily: 'Inter, sans-serif', fontSize: '0.82rem' }}
-                    >
+                    <button onClick={() => navigate(`/user/${p.id}`)} style={{ flex: 1, padding: '0.5rem', background: 'transparent', color: mutedColor, border: `1px solid ${border}`, borderRadius: '8px', cursor: 'pointer', fontFamily: 'Inter, sans-serif', fontSize: '0.82rem' }}>
                       View Profile
                     </button>
-                    <button
-                      onClick={() => sendRequest(p.id)}
-                      disabled={!!sent}
-                      style={{ flex: 1, padding: '0.5rem', background: sent ? 'rgba(16,185,129,0.12)' : 'linear-gradient(135deg, #6c63ff, #a78bfa)', color: sent ? '#10b981' : 'white', border: sent ? '1px solid rgba(16,185,129,0.3)' : 'none', borderRadius: '8px', cursor: sent ? 'default' : 'pointer', fontFamily: 'Inter, sans-serif', fontSize: '0.82rem', fontWeight: '600' }}
-                    >
+                    <button onClick={() => sendRequest(p.id)} disabled={!!sent} style={{ flex: 1, padding: '0.5rem', background: sent ? 'rgba(16,185,129,0.12)' : 'linear-gradient(135deg, #6c63ff, #a78bfa)', color: sent ? '#10b981' : 'white', border: sent ? '1px solid rgba(16,185,129,0.3)' : 'none', borderRadius: '8px', cursor: sent ? 'default' : 'pointer', fontFamily: 'Inter, sans-serif', fontSize: '0.82rem', fontWeight: '600' }}>
                       {sent ? '✓ Sent' : '+ Connect'}
                     </button>
                   </div>
                 </div>
               )
             })}
+          </div>
+        </div>
+      )}
+
+      {/* No suggestions — prompt to set up profile */}
+      {user && suggestions.length === 0 && !loading && (
+        <div style={{ maxWidth: '500px', margin: '0 auto', padding: '0 1.5rem 3rem', textAlign: 'center' }}>
+          <div style={{ background: cardBg, border: `1px solid ${border}`, borderRadius: '16px', padding: '2rem' }}>
+            <p style={{ fontSize: '2rem', marginBottom: '0.75rem' }}>🎮</p>
+            <p style={{ fontWeight: '700', fontSize: '1rem', color: textColor, marginBottom: '0.5rem' }}>Set up your gaming profile</p>
+            <p style={{ color: mutedColor, fontSize: '0.9rem', marginBottom: '1.25rem', lineHeight: 1.5 }}>Add your games and skill levels to get matched with players you might know.</p>
+            <button onClick={() => navigate('/game-levels')} style={{ padding: '0.75rem 2rem', background: 'linear-gradient(135deg, #6c63ff, #a78bfa)', color: 'white', border: 'none', borderRadius: '10px', cursor: 'pointer', fontFamily: 'Inter, sans-serif', fontWeight: '600', fontSize: '0.95rem' }}>
+              🎮 Set Up Gaming Profile
+            </button>
           </div>
         </div>
       )}
