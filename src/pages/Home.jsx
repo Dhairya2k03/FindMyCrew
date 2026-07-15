@@ -88,7 +88,7 @@ export default function Home({ theme }) {
             <button onClick={() => navigate('/browse')} style={{ padding: '0.9rem 2rem', background: 'linear-gradient(135deg, #6c63ff, #a78bfa)', color: 'white', border: 'none', borderRadius: '12px', fontSize: '1rem', fontWeight: '700', cursor: 'pointer', fontFamily: 'Inter, sans-serif', boxShadow: '0 0 30px rgba(108,99,255,0.4)' }}>
               Find Players →
             </button>
-            <button onClick={() => navigate('/game-levels')} style={{ padding: '0.9rem 2rem', background: 'transparent', color: textColor, border: `1px solid ${border}`, borderRadius: '12px', fontSize: '1rem', fontWeight: '600', cursor: 'pointer', fontFamily: 'Inter, sans-serif' }}>
+            <button onClick={() => navigate('/profile')} style={{ padding: '0.9rem 2rem', background: 'transparent', color: textColor, border: `1px solid ${border}`, borderRadius: '12px', fontSize: '1rem', fontWeight: '600', cursor: 'pointer', fontFamily: 'Inter, sans-serif' }}>
               🎮 Set Up Gaming Profile
             </button>
             <button onClick={() => navigate('/groups')} style={{ padding: '0.9rem 2rem', background: 'transparent', color: textColor, border: `1px solid ${border}`, borderRadius: '12px', fontSize: '1rem', fontWeight: '600', cursor: 'pointer', fontFamily: 'Inter, sans-serif' }}>
@@ -170,8 +170,10 @@ export default function Home({ theme }) {
           <div style={{ background: cardBg, border: `1px solid ${border}`, borderRadius: '16px', padding: '2rem' }}>
             <p style={{ fontSize: '2rem', marginBottom: '0.75rem' }}>🎮</p>
             <p style={{ fontWeight: '700', fontSize: '1rem', color: textColor, marginBottom: '0.5rem' }}>Set up your gaming profile</p>
-            <p style={{ color: mutedColor, fontSize: '0.9rem', marginBottom: '1.25rem', lineHeight: 1.5 }}>Add your games and skill levels to get matched with players you might know.</p>
-            <button onClick={() => navigate('/game-levels')} style={{ padding: '0.75rem 2rem', background: 'linear-gradient(135deg, #6c63ff, #a78bfa)', color: 'white', border: 'none', borderRadius: '10px', cursor: 'pointer', fontFamily: 'Inter, sans-serif', fontWeight: '600', fontSize: '0.95rem' }}>
+            <p style={{ color: mutedColor, fontSize: '0.9rem', marginBottom: '1.25rem', lineHeight: 1.5 }}>
+              Add your games and skill levels to get matched with players you might know.
+            </p>
+            <button onClick={() => navigate('/profile')} style={{ padding: '0.75rem 2rem', background: 'linear-gradient(135deg, #6c63ff, #a78bfa)', color: 'white', border: 'none', borderRadius: '10px', cursor: 'pointer', fontFamily: 'Inter, sans-serif', fontWeight: '600', fontSize: '0.95rem' }}>
               🎮 Set Up Gaming Profile
             </button>
           </div>
