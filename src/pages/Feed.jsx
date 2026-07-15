@@ -21,6 +21,7 @@ export default function Feed({ theme }) {
   const [profiles, setProfiles] = useState({})
   const [likes, setLikes] = useState({})
   const [comments, setComments] = useState({})
+  const [views, setViews] = useState({})
   const [currentUser, setCurrentUser] = useState(null)
   const [loading, setLoading] = useState(true)
   const [showCreate, setShowCreate] = useState(false)
@@ -37,6 +38,7 @@ export default function Feed({ theme }) {
   const [showcasedPostIds, setShowcasedPostIds] = useState([])
   const mediaInputRef = useRef(null)
   const currentUserRef = useRef(null)
+  const viewedPostsRef = useRef(new Set())
   const navigate = useNavigate()
 
   const isLight = theme === 'light'
@@ -113,6 +115,14 @@ export default function Feed({ theme }) {
           return { ...prev, [c.post_id]: [...existing, c] }
         })
       })
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'post_views' }, payload => {
+        const v = payload.new
+        setViews(prev => {
+          const existing = prev[v.post_id] || []
+          if (existing.some(x => x.id === v.id)) return prev
+          return { ...prev, [v.post_id]: [...existing, v] }
+        })
+      })
       .subscribe()
     return () => supabase.removeChannel(channel)
   }, [currentUser])
@@ -148,6 +158,23 @@ export default function Feed({ theme }) {
       if (!commentsMap[c.post_id].some(x => x.id === c.id)) commentsMap[c.post_id].push(c)
     })
     setComments(commentsMap)
+
+    const { data: viewsData } = await supabase.from('post_views').select('*').in('post_id', postIds)
+    const viewsMap = {}
+    viewsData?.forEach(v => {
+      if (!viewsMap[v.post_id]) viewsMap[v.post_id] = []
+      if (!viewsMap[v.post_id].some(x => x.id === v.id)) viewsMap[v.post_id].push(v)
+    })
+    setViews(viewsMap)
+  }
+
+  const recordView = async (postId) => {
+    const user = currentUserRef.current
+    if (!user) return
+    const { error } = await supabase
+      .from('post_views')
+      .upsert({ post_id: postId, user_id: user.id }, { onConflict: 'post_id,user_id', ignoreDuplicates: true })
+    if (error) console.error('view tracking error:', error.message)
   }
 
   const toggleFollowUser = async (targetUserId) => {
@@ -265,6 +292,8 @@ export default function Feed({ theme }) {
   const getAvatar = (uid) => profiles[uid]?.avatar_url
   const avatarColors = ['#6c63ff', '#f59e0b', '#10b981', '#ef4444', '#3b82f6', '#ec4899']
   const getColor = (uid) => { const n = getName(uid); return avatarColors[n.charCodeAt(0) % avatarColors.length] }
+  const getViewCount = (postId) => (views[postId] || []).length
+  const getScore = (post) => getViewCount(post.id) + (likes[post.id] || []).length * 2
 
   const Avatar = ({ userId, size = 36 }) => {
     const url = getAvatar(userId)
@@ -289,9 +318,19 @@ export default function Feed({ theme }) {
 
   const showcasedPosts = posts.filter(p => showcasedPostIds.includes(p.id))
 
-  const PostCard = ({ post }) => {
+  // Pin the single highest-scoring post (views + likes*2) to the top,
+  // computed after the current tab/type filters so it stays relevant.
+  let trendingPost = null
+  if (visiblePosts.length > 1) {
+    const topByScore = [...visiblePosts].sort((a, b) => getScore(b) - getScore(a))[0]
+    if (topByScore && getScore(topByScore) > 0) trendingPost = topByScore
+  }
+  const restPosts = trendingPost ? visiblePosts.filter(p => p.id !== trendingPost.id) : visiblePosts
+
+  const PostCard = ({ post, isTrending = false }) => {
     const postLikes = likes[post.id] || []
     const postComments = comments[post.id] || []
+    const postViewCount = getViewCount(post.id)
     const isLiked = postLikes.some(l => l.user_id === currentUser?.id)
     const isOwn = post.user_id === currentUser?.id
     const typeColor = TYPE_COLORS[post.post_type] || '#6c63ff'
@@ -299,13 +338,30 @@ export default function Feed({ theme }) {
     const isCommentsOpen = openComments === post.id
     const isUserFollowed = followingMap[post.user_id]
     const isShowcased = showcasedPostIds.includes(post.id)
+    const cardRef = useRef(null)
+
+    useEffect(() => {
+      if (!cardRef.current || !currentUser) return
+      const el = cardRef.current
+      const observer = new IntersectionObserver((entries) => {
+        entries.forEach(entry => {
+          if (entry.isIntersecting && !viewedPostsRef.current.has(post.id)) {
+            viewedPostsRef.current.add(post.id)
+            recordView(post.id)
+          }
+        })
+      }, { threshold: 0.6 })
+      observer.observe(el)
+      return () => observer.disconnect()
+    }, [post.id, currentUser])
 
     return (
-      <div style={{ background: cardBg, border: isShowcased ? '1px solid rgba(245,158,11,0.4)' : `1px solid ${border}`, borderRadius: '16px', overflow: 'hidden' }}>
+      <div ref={cardRef} style={{ background: cardBg, border: isTrending ? '1px solid rgba(239,68,68,0.4)' : isShowcased ? '1px solid rgba(245,158,11,0.4)' : `1px solid ${border}`, borderRadius: '16px', overflow: 'hidden' }}>
         <div style={{ padding: '1.25rem 1.25rem 0' }}>
-          {isShowcased && (
+          {(isTrending || isShowcased) && (
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.5rem' }}>
-              <span style={{ fontSize: '0.7rem', color: '#f59e0b', background: 'rgba(245,158,11,0.12)', border: '1px solid rgba(245,158,11,0.3)', borderRadius: '100px', padding: '1px 8px', fontWeight: '600' }}>📌 Showcased</span>
+              {isTrending && <span style={{ fontSize: '0.7rem', color: '#ef4444', background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: '100px', padding: '1px 8px', fontWeight: '600' }}>🔥 Trending</span>}
+              {isShowcased && <span style={{ fontSize: '0.7rem', color: '#f59e0b', background: 'rgba(245,158,11,0.12)', border: '1px solid rgba(245,158,11,0.3)', borderRadius: '100px', padding: '1px 8px', fontWeight: '600' }}>📌 Showcased</span>}
             </div>
           )}
           <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.75rem', marginBottom: '0.75rem' }}>
@@ -361,6 +417,9 @@ export default function Feed({ theme }) {
           <button onClick={() => setOpenComments(isCommentsOpen ? null : post.id)} style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', background: 'none', border: 'none', color: isCommentsOpen ? '#a78bfa' : mutedColor, cursor: 'pointer', fontFamily: 'Inter, sans-serif', fontSize: '0.9rem', padding: 0 }}>
             💬 {postComments.length}
           </button>
+          <span style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', color: mutedColor, fontSize: '0.9rem' }}>
+            👁️ {postViewCount}
+          </span>
           {(post.post_type === 'lf_partner' || post.post_type === 'lf_team') && !isOwn && (
             <button onClick={() => navigate(`/user/${post.user_id}`)} style={{ marginLeft: 'auto', padding: '0.4rem 1rem', background: `${typeColor}18`, color: typeColor, border: `1px solid ${typeColor}40`, borderRadius: '8px', cursor: 'pointer', fontFamily: 'Inter, sans-serif', fontSize: '0.82rem', fontWeight: '600' }}>
               Connect →
@@ -519,7 +578,8 @@ export default function Feed({ theme }) {
           </div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-            {visiblePosts.map(post => <PostCard key={post.id} post={post} />)}
+            {trendingPost && <PostCard key={trendingPost.id} post={trendingPost} isTrending />}
+            {restPosts.map(post => <PostCard key={post.id} post={post} />)}
           </div>
         )}
       </div>
