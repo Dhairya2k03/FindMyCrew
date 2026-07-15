@@ -313,8 +313,23 @@ export default function Feed({ theme }) {
   }
 
   const visiblePosts = posts
-    .filter(p => feedTab === 'following' ? followingIds.includes(p.user_id) || p.user_id === currentUser?.id : true)
+    .filter(p => {
+      if (feedTab === 'following') return followingIds.includes(p.user_id) || p.user_id === currentUser?.id
+      if (feedTab === 'trending') {
+        const ageHours = (new Date() - new Date(p.created_at)) / 3600000
+        return ageHours <= 168 && ((likes[p.id] || []).length + (comments[p.id] || []).length) > 0
+      }
+      return true
+    })
     .filter(p => filterType === 'all' ? true : p.post_type === filterType)
+    .sort((a, b) => {
+      if (feedTab === 'trending') {
+        const scoreA = (likes[a.id] || []).length * 2 + (comments[a.id] || []).length
+        const scoreB = (likes[b.id] || []).length * 2 + (comments[b.id] || []).length
+        return scoreB - scoreA
+      }
+      return new Date(b.created_at) - new Date(a.created_at)
+    })
 
   const showcasedPosts = posts.filter(p => showcasedPostIds.includes(p.id))
 
@@ -502,7 +517,7 @@ export default function Feed({ theme }) {
 
         {/* Feed tabs */}
         <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1.25rem', background: isLight ? 'rgba(0,0,0,0.04)' : 'rgba(255,255,255,0.04)', borderRadius: '12px', padding: '0.35rem' }}>
-          {[{ id: 'all', label: '🌐 For You' }, { id: 'following', label: `👥 Following (${followingIds.length})` }].map(tab => (
+          {[{ id: 'all', label: '🌐 For You' }, { id: 'following', label: `👥 Following (${followingIds.length})` }, { id: 'trending', label: '🔥 Trending' }].map(tab => (
             <button key={tab.id} onClick={() => setFeedTab(tab.id)} style={{ flex: 1, padding: '0.6rem', background: feedTab === tab.id ? 'linear-gradient(135deg, #6c63ff, #a78bfa)' : 'transparent', color: feedTab === tab.id ? 'white' : mutedColor, border: 'none', borderRadius: '8px', cursor: 'pointer', fontFamily: 'Inter, sans-serif', fontWeight: feedTab === tab.id ? '600' : '400', fontSize: '0.9rem', transition: 'all 0.2s' }}>
               {tab.label}
             </button>
