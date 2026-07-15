@@ -14,7 +14,7 @@ const TYPE_ICONS = {
 }
 
 const getLink = (notif) => {
-  const content = notif.content || ''
+  const content = notif.message || ''
   const type = notif.type || ''
 
   if (notif.link) return notif.link
@@ -159,7 +159,7 @@ export default function Notifications({ theme }) {
                   </span>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <p style={{ fontSize: '0.92rem', color: textColor, lineHeight: 1.5, margin: 0, marginBottom: '0.2rem' }}>
-                      {notif.content}
+                      {notif.message}
                     </p>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                       <p style={{ fontSize: '0.75rem', color: mutedColor, margin: 0 }}>{formatTime(notif.created_at)}</p>
