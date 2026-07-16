@@ -28,6 +28,9 @@ export default function UserProfile({ theme }) {
   const [followingCount, setFollowingCount] = useState(0)
   const [userPosts, setUserPosts] = useState([])
   const [postLikes, setPostLikes] = useState({})
+  const [profileViews, setProfileViews] = useState([])
+  const [showViewers, setShowViewers] = useState(false)
+  const [viewerProfiles, setViewerProfiles] = useState({})
 
   const isLight = theme === 'light'
   const bg = isLight ? '#f0f0f7' : '#0f0f1a'
@@ -40,8 +43,10 @@ export default function UserProfile({ theme }) {
     const load = async () => {
       const { data: { user } } = await supabase.auth.getUser()
       setCurrentUser(user)
+
       const { data: profileData } = await supabase.from('profiles').select('*').eq('id', userId).single()
       setProfile(profileData)
+
       const { data: me } = await supabase.from('profiles').select('hobbies').eq('id', user.id).single()
       const mutual = (profileData?.hobbies || []).filter(h => (me?.hobbies || []).includes(h))
       setMutualGames(mutual)
@@ -84,6 +89,34 @@ export default function UserProfile({ theme }) {
         setPostLikes(likesMap)
       }
 
+      // Record profile view (only if viewing someone else's profile)
+      if (user.id !== userId) {
+        await supabase.from('profile_views').upsert({
+          viewer_id: user.id,
+          viewed_id: userId,
+          created_at: new Date().toISOString()
+        }, { onConflict: 'viewer_id,viewed_id' })
+      }
+
+      // Load profile views (only shown to profile owner)
+      if (user.id === userId) {
+        const { data: views } = await supabase
+          .from('profile_views')
+          .select('*')
+          .eq('viewed_id', userId)
+          .order('created_at', { ascending: false })
+          .limit(20)
+        setProfileViews(views || [])
+
+        if (views && views.length > 0) {
+          const viewerIds = [...new Set(views.map(v => v.viewer_id))]
+          const { data: vProfiles } = await supabase.from('profiles').select('id, username, avatar_url').in('id', viewerIds)
+          const map = {}
+          vProfiles?.forEach(p => { map[p.id] = p })
+          setViewerProfiles(map)
+        }
+      }
+
       setLoading(false)
     }
     load()
@@ -120,8 +153,18 @@ export default function UserProfile({ theme }) {
   const avatarColors = ['#6c63ff', '#f59e0b', '#10b981', '#ef4444', '#3b82f6', '#ec4899']
   const name = profile?.username || profile?.email?.split('@')[0] || 'Player'
   const color = avatarColors[name.charCodeAt(0) % avatarColors.length]
-
+  const getColor = (n) => avatarColors[(n || '?').charCodeAt(0) % avatarColors.length]
   const POST_TYPE_LABELS = { general: '💬', lf_partner: '🎮', lf_team: '👥', clip: '🎬' }
+  const isOwn = currentUser?.id === userId
+
+  const formatTime = (date) => {
+    const d = new Date(date)
+    const diff = new Date() - d
+    if (diff < 3600000) return `${Math.floor(diff / 60000)}m ago`
+    if (diff < 86400000) return `${Math.floor(diff / 3600000)}h ago`
+    if (diff < 604800000) return `${Math.floor(diff / 86400000)}d ago`
+    return d.toLocaleDateString()
+  }
 
   if (loading) return (
     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 'calc(100vh - 64px)', background: bg }}>
@@ -133,7 +176,7 @@ export default function UserProfile({ theme }) {
     <div style={{ maxWidth: '650px', margin: '0 auto', padding: '2rem', background: bg, minHeight: 'calc(100vh - 64px)' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
         <button onClick={() => navigate(-1)} style={{ background: 'none', border: 'none', color: mutedColor, cursor: 'pointer', fontFamily: 'Inter, sans-serif', fontSize: '0.9rem', padding: 0 }}>← Back</button>
-        {currentUser?.id !== userId && (
+        {!isOwn && (
           <button onClick={toggleBlock} style={{ background: isBlocked ? 'rgba(239,68,68,0.1)' : 'transparent', border: '1px solid rgba(239,68,68,0.3)', color: '#ef4444', borderRadius: '8px', padding: '0.4rem 0.85rem', cursor: 'pointer', fontFamily: 'Inter, sans-serif', fontSize: '0.8rem' }}>
             {isBlocked ? '🚫 Unblock' : '🚫 Block'}
           </button>
@@ -154,7 +197,7 @@ export default function UserProfile({ theme }) {
         {profile?.bio && <p style={{ color: mutedColor, fontSize: '0.9rem', marginBottom: '1rem', lineHeight: 1.5, maxWidth: '400px', margin: '0 auto 1rem' }}>{profile.bio}</p>}
 
         {/* Stats */}
-        <div style={{ display: 'flex', gap: '2rem', justifyContent: 'center', marginBottom: '1.25rem' }}>
+        <div style={{ display: 'flex', gap: '1.5rem', justifyContent: 'center', marginBottom: '1.25rem', flexWrap: 'wrap' }}>
           <div style={{ textAlign: 'center' }}>
             <p style={{ fontWeight: '700', fontSize: '1.2rem', color: textColor, margin: 0 }}>{followerCount}</p>
             <p style={{ color: mutedColor, fontSize: '0.8rem', margin: 0 }}>Followers</p>
@@ -167,6 +210,12 @@ export default function UserProfile({ theme }) {
             <p style={{ fontWeight: '700', fontSize: '1.2rem', color: textColor, margin: 0 }}>{userPosts.length}</p>
             <p style={{ color: mutedColor, fontSize: '0.8rem', margin: 0 }}>Posts</p>
           </div>
+          {isOwn && (
+            <div onClick={() => setShowViewers(!showViewers)} style={{ textAlign: 'center', cursor: 'pointer' }}>
+              <p style={{ fontWeight: '700', fontSize: '1.2rem', color: '#a78bfa', margin: 0 }}>{profileViews.length}</p>
+              <p style={{ color: '#a78bfa', fontSize: '0.8rem', margin: 0 }}>👁 Profile Views</p>
+            </div>
+          )}
         </div>
 
         {mutualGames.length > 0 && <p style={{ color: '#a78bfa', fontSize: '0.85rem', marginBottom: '1rem' }}>🎮 {mutualGames.length} game{mutualGames.length > 1 ? 's' : ''} in common</p>}
@@ -189,7 +238,7 @@ export default function UserProfile({ theme }) {
         )}
 
         {/* Action buttons */}
-        {currentUser?.id !== userId && !isBlocked && (
+        {!isOwn && !isBlocked && (
           <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'center', flexWrap: 'wrap' }}>
             <button onClick={toggleFollow} style={{ padding: '0.7rem 1.5rem', background: isFollowing ? 'rgba(108,99,255,0.15)' : 'linear-gradient(135deg, #6c63ff, #a78bfa)', color: isFollowing ? '#a78bfa' : 'white', border: isFollowing ? '1px solid rgba(108,99,255,0.3)' : 'none', borderRadius: '10px', cursor: 'pointer', fontFamily: 'Inter, sans-serif', fontWeight: '600', fontSize: '0.9rem' }}>
               {isFollowing ? '✓ Following' : '+ Follow'}
@@ -208,6 +257,35 @@ export default function UserProfile({ theme }) {
         )}
         {isBlocked && <p style={{ color: '#ef4444', fontSize: '0.85rem' }}>You have blocked this user.</p>}
       </div>
+
+      {/* Profile viewers — only visible to profile owner */}
+      {isOwn && showViewers && profileViews.length > 0 && (
+        <div style={{ background: cardBg, border: `1px solid ${border}`, borderRadius: '20px', padding: '1.5rem', marginBottom: '1.5rem' }}>
+          <h3 style={{ fontWeight: '700', marginBottom: '1rem', fontSize: '1rem', color: mutedColor, textTransform: 'uppercase', letterSpacing: '0.05em' }}>👁 Recent Profile Views</h3>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
+            {profileViews.map(view => {
+              const vp = viewerProfiles[view.viewer_id]
+              const vname = vp?.username || 'Player'
+              return (
+                <div key={view.id} onClick={() => navigate(`/user/${view.viewer_id}`)} style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.6rem 0.75rem', background: isLight ? 'rgba(0,0,0,0.03)' : 'rgba(255,255,255,0.03)', borderRadius: '10px', cursor: 'pointer', border: `1px solid ${border}` }}>
+                  {vp?.avatar_url ? (
+                    <img src={vp.avatar_url} alt={vname} style={{ width: '36px', height: '36px', borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }} />
+                  ) : (
+                    <div style={{ width: '36px', height: '36px', borderRadius: '50%', background: getColor(vname), display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: '700', color: 'white', flexShrink: 0 }}>
+                      {vname[0]?.toUpperCase()}
+                    </div>
+                  )}
+                  <div style={{ flex: 1 }}>
+                    <p style={{ fontWeight: '600', fontSize: '0.9rem', color: textColor, margin: 0 }}>{vname}</p>
+                    <p style={{ fontSize: '0.75rem', color: mutedColor, margin: 0 }}>{formatTime(view.created_at)}</p>
+                  </div>
+                  <span style={{ fontSize: '0.75rem', color: '#a78bfa' }}>View profile →</span>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Achievements */}
       {achievements.length > 0 && (
@@ -242,7 +320,7 @@ export default function UserProfile({ theme }) {
                   <img src={post.media_url} alt="" style={{ width: '100%', height: '60px', objectFit: 'cover', borderRadius: '6px', marginBottom: '0.4rem' }} />
                 )}
                 {post.media_url && post.media_type === 'video' && (
-                  <div style={{ width: '100%', height: '60px', background: '#000', borderRadius: '6px', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '0.4rem', fontSize: '1.5rem' }}>🎬</div>
+                  <div style={{ width: '100%', height: '60px', background: '#000', borderRadius: '6px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.5rem', marginBottom: '0.4rem' }}>🎬</div>
                 )}
                 <p style={{ fontSize: '0.78rem', color: textColor, lineHeight: 1.3, overflow: 'hidden', textOverflow: 'ellipsis', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>
                   {POST_TYPE_LABELS[post.post_type]} {post.content || ''}
