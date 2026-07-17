@@ -3,7 +3,7 @@ import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabaseClient'
 import { ADMIN_EMAIL } from '../lib/constants'
 
-export default function Navbar({ theme, setTheme, user }) {
+export default function Navbar({ theme, setTheme, user, streakInfo }) {
   const navigate = useNavigate()
   const location = useLocation()
   const [unreadMessages, setUnreadMessages] = useState(0)
@@ -64,6 +64,32 @@ export default function Navbar({ theme, setTheme, user }) {
   const inactiveColor = isLight ? '#666' : '#aaa'
   const activeBg  = 'rgba(108,99,255,0.1)'
 
+  const streak = streakInfo?.streak || 0
+
+  const StreakBadge = ({ compact = false }) => {
+    if (!streak) return null
+    return (
+      <div
+        title={`${streak} day streak · Longest: ${streakInfo?.longestStreak || streak}`}
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: '0.3rem',
+          padding: compact ? '0.4rem 0.7rem' : '0.5rem 0.85rem',
+          background: 'rgba(245,158,11,0.12)',
+          border: '1px solid rgba(245,158,11,0.3)',
+          borderRadius: '100px',
+          color: '#f59e0b',
+          fontWeight: '700',
+          fontSize: compact ? '0.85rem' : '0.85rem',
+          whiteSpace: 'nowrap',
+        }}
+      >
+        🔥 {streak}
+      </div>
+    )
+  }
+
   return (
     <>
       <nav style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0 1.5rem', height: '64px', background: navBg, backdropFilter: 'blur(10px)', borderBottom: `1px solid ${navBorder}`, position: 'sticky', top: 0, zIndex: 100 }}>
@@ -72,6 +98,8 @@ export default function Navbar({ theme, setTheme, user }) {
         </Link>
 
         <div className="desktop-nav" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+          <StreakBadge />
+
           {navItems.map(({ path, label, badge }) => (
             <Link key={path} to={path} style={{ padding: '0.5rem 1rem', borderRadius: '8px', color: isActive(path) ? activeColor : inactiveColor, fontWeight: isActive(path) ? '600' : '400', background: isActive(path) ? activeBg : 'transparent', transition: 'all 0.2s', display: 'flex', alignItems: 'center', gap: '0.3rem', whiteSpace: 'nowrap', textDecoration: 'none' }}>
               {label}
@@ -99,6 +127,10 @@ export default function Navbar({ theme, setTheme, user }) {
           </button>
         </div>
 
+        <div className="mobile-streak" style={{ display: 'none' }}>
+          <StreakBadge compact />
+        </div>
+
         <button
           onClick={() => setMenuOpen(!menuOpen)}
           className="hamburger"
@@ -113,6 +145,11 @@ export default function Navbar({ theme, setTheme, user }) {
 
       {menuOpen && (
         <div style={{ position: 'fixed', top: '64px', left: 0, right: 0, bottom: 0, background: isLight ? 'rgba(240,240,247,0.98)' : 'rgba(15,15,26,0.98)', zIndex: 99, display: 'flex', flexDirection: 'column', padding: '1.5rem', gap: '0.5rem', overflowY: 'auto' }}>
+          {streak > 0 && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.85rem 1.25rem', background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.3)', borderRadius: '12px', color: '#f59e0b', fontWeight: '700', marginBottom: '0.25rem' }}>
+              🔥 {streak} day streak {streakInfo?.longestStreak > streak ? `· Best: ${streakInfo.longestStreak}` : ''}
+            </div>
+          )}
           {navItems.map(({ path, label, badge }) => (
             <Link key={path} to={path} style={{ padding: '1rem 1.25rem', borderRadius: '12px', color: isActive(path) ? '#a78bfa' : isLight ? '#333' : 'white', fontWeight: isActive(path) ? '700' : '500', background: isActive(path) ? 'rgba(108,99,255,0.15)' : isLight ? 'rgba(0,0,0,0.04)' : 'rgba(255,255,255,0.03)', border: `1px solid ${isLight ? 'rgba(0,0,0,0.08)' : 'rgba(255,255,255,0.06)'}`, fontSize: '1.05rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', textDecoration: 'none' }}>
               {label === '🔔' ? '🔔 Notifications' : label === '🔍' ? '🔍 Search' : label}
@@ -136,6 +173,7 @@ export default function Navbar({ theme, setTheme, user }) {
         @media (max-width: 768px) {
           .desktop-nav { display: none !important; }
           .hamburger { display: block !important; }
+          .mobile-streak { display: block !important; margin-left: auto; margin-right: 0.5rem; }
         }
       `}</style>
     </>

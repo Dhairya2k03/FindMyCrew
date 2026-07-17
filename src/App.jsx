@@ -1,6 +1,7 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { useEffect, useState } from 'react'
 import { supabase } from './lib/supabaseClient'
+import { updateLoginStreak } from './lib/streak'
 
 import Navbar from './components/Navbar'
 import Home from './pages/Home'
@@ -32,6 +33,7 @@ export default function App() {
   const [user, setUser] = useState(null)
   const [loading, setLoading] = useState(true)
   const [theme, setTheme] = useState(() => localStorage.getItem('theme') || 'dark')
+  const [streakInfo, setStreakInfo] = useState(null)
 
   useEffect(() => {
     document.body.classList.toggle('light', theme === 'light')
@@ -41,14 +43,25 @@ export default function App() {
   useEffect(() => {
     const init = async () => {
       const { data } = await supabase.auth.getSession()
-      setUser(data?.session?.user ?? null)
+      const sessionUser = data?.session?.user ?? null
+      setUser(sessionUser)
       setLoading(false)
+      if (sessionUser) {
+        const result = await updateLoginStreak(sessionUser.id)
+        setStreakInfo(result)
+      }
     }
 
     init()
 
     const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
-      setUser(session?.user ?? null)
+      const sessionUser = session?.user ?? null
+      setUser(sessionUser)
+      if (sessionUser) {
+        updateLoginStreak(sessionUser.id).then(setStreakInfo)
+      } else {
+        setStreakInfo(null)
+      }
     })
 
     return () => {
@@ -60,12 +73,12 @@ export default function App() {
 
   return (
     <BrowserRouter>
-      <Navbar theme={theme} setTheme={setTheme} user={user} />
+      <Navbar theme={theme} setTheme={setTheme} user={user} streakInfo={streakInfo} />
 
       <Routes>
         <Route path="/login" element={user ? <Navigate to="/" /> : <Login />} />
 
-        <Route path="/" element={<ProtectedRoute user={user}><Home theme={theme} /></ProtectedRoute>} />
+        <Route path="/" element={<ProtectedRoute user={user}><Home theme={theme} streakInfo={streakInfo} /></ProtectedRoute>} />
         <Route path="/browse" element={<ProtectedRoute user={user}><Browse theme={theme} /></ProtectedRoute>} />
         <Route path="/profile" element={<ProtectedRoute user={user}><Profile theme={theme} /></ProtectedRoute>} />
         <Route path="/connections" element={<ProtectedRoute user={user}><Connections theme={theme} /></ProtectedRoute>} />
