@@ -4,7 +4,13 @@ import { supabase } from '../lib/supabaseClient'
 
 const avatarColors = ['#6c63ff', '#f59e0b', '#10b981', '#ef4444', '#3b82f6', '#ec4899']
 
-export default function HobbyCard({ profile, currentUserId, connectionStatus, theme }) {
+const getMatchColor = (score) => {
+  if (score >= 70) return '#10b981'
+  if (score >= 40) return '#f59e0b'
+  return '#888'
+}
+
+export default function HobbyCard({ profile, currentUserId, connectionStatus, theme, matchScore }) {
   const [status, setStatus] = useState(connectionStatus)
   const navigate = useNavigate()
 
@@ -93,9 +99,23 @@ export default function HobbyCard({ profile, currentUserId, connectionStatus, th
             {initial}
           </div>
         )}
-        <h3 style={{ fontSize: '0.95rem', fontWeight: '600', color: textPrimary, wordBreak: 'break-word' }}>
+        <h3 style={{ fontSize: '0.95rem', fontWeight: '600', color: textPrimary, wordBreak: 'break-word', flex: 1, minWidth: 0 }}>
           {name}
         </h3>
+        {typeof matchScore === 'number' && matchScore > 0 && (
+          <span style={{
+            flexShrink: 0,
+            fontSize: '0.72rem',
+            fontWeight: '700',
+            color: getMatchColor(matchScore),
+            background: `${getMatchColor(matchScore)}18`,
+            border: `1px solid ${getMatchColor(matchScore)}40`,
+            borderRadius: '100px',
+            padding: '2px 8px',
+          }}>
+            {matchScore}% match
+          </span>
+        )}
       </div>
 
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.3rem', marginBottom: '1rem' }}>

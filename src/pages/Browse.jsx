@@ -8,6 +8,32 @@ const PLATFORM_ICONS = { steam: '🖥️', epic: '🎮', playstation: '🎮', xb
 const LEVELS = ['beginner', 'intermediate', 'pro']
 const LEVEL_ICONS = { beginner: '🌱', intermediate: '⚡', pro: '🔥' }
 
+// Weighted match score (0-100): mostly shared games, then shared platforms,
+// then matching skill levels on games you both play.
+const computeMatchScore = (me, other) => {
+  const myGames = me?.hobbies || []
+  const otherGames = other?.hobbies || []
+  const myPlatforms = me?.platforms || []
+  const otherPlatforms = other?.platforms || []
+
+  if (myGames.length === 0) return 0
+
+  const mutualGames = myGames.filter(g => otherGames.includes(g))
+  const gameRatio = mutualGames.length / myGames.length
+
+  const mutualPlatforms = myPlatforms.filter(p => otherPlatforms.includes(p))
+  const platformRatio = myPlatforms.length > 0 ? mutualPlatforms.length / myPlatforms.length : 0
+
+  let skillMatches = 0
+  mutualGames.forEach(g => {
+    if (me?.game_levels?.[g] && me.game_levels[g] === other?.game_levels?.[g]) skillMatches++
+  })
+  const skillRatio = mutualGames.length > 0 ? skillMatches / mutualGames.length : 0
+
+  const score = gameRatio * 60 + platformRatio * 25 + skillRatio * 15
+  return Math.round(Math.min(score, 100))
+}
+
 export default function Browse({ theme }) {
   const isLight = theme === 'light'
 
@@ -43,7 +69,7 @@ export default function Browse({ theme }) {
         if (!user) { setError('Not logged in'); setLoading(false); return }
         setCurrentUserId(user.id)
 
-        const { data: me } = await supabase.from('profiles').select('hobbies').eq('id', user.id).single()
+        const { data: me } = await supabase.from('profiles').select('hobbies, platforms, game_levels').eq('id', user.id).single()
         const { data: others, error: fetchError } = await supabase.from('profiles').select('*').neq('id', user.id)
         if (fetchError) { setError(fetchError.message); setLoading(false); return }
 
@@ -55,11 +81,8 @@ export default function Browse({ theme }) {
         receivedConns?.forEach(c => { map[c.sender_id] = c.status })
         setConnectionMap(map)
 
-        const sorted = (others || []).sort((a, b) => {
-          const overlapA = (a.hobbies || []).filter(h => (me?.hobbies || []).includes(h)).length
-          const overlapB = (b.hobbies || []).filter(h => (me?.hobbies || []).includes(h)).length
-          return overlapB - overlapA
-        })
+        const scored = (others || []).map(p => ({ ...p, matchScore: computeMatchScore(me, p) }))
+        const sorted = scored.sort((a, b) => b.matchScore - a.matchScore)
         setProfiles(sorted)
 
         const games = new Set()
@@ -95,7 +118,7 @@ export default function Browse({ theme }) {
     <div style={{ padding: '1.5rem', maxWidth: '1100px', margin: '0 auto' }}>
       <div style={{ marginBottom: '1.5rem' }}>
         <h2 style={{ fontSize: '1.75rem', fontWeight: '700', marginBottom: '0.5rem', color: textPrimary }}>Find Players 🎮</h2>
-        <p style={{ color: textMuted }}>Players sorted by shared games</p>
+        <p style={{ color: textMuted }}>Players sorted by match score</p>
       </div>
 
       <div style={{ display: 'flex', gap: '0.75rem', marginBottom: '1rem', flexWrap: 'wrap' }}>
@@ -176,6 +199,7 @@ export default function Browse({ theme }) {
               currentUserId={currentUserId}
               connectionStatus={connectionMap[p.id] || null}
               theme={theme}
+              matchScore={p.matchScore}
             />
           ))}
         </div>
