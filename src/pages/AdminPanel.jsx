@@ -11,6 +11,8 @@ export default function AdminPanel({ theme }) {
   const [loading, setLoading] = useState(true)
   const [filter, setFilter] = useState('all')
   const [dismissing, setDismissing] = useState(null)
+  const [stats, setStats] = useState(null)
+  const [statsLoading, setStatsLoading] = useState(true)
 
   const isLight = theme === 'light'
   const bg          = isLight ? '#f0f0f7'              : '#0f0f1a'
@@ -47,9 +49,46 @@ export default function AdminPanel({ theme }) {
       }
 
       setLoading(false)
+      loadStats()
     }
     load()
   }, [])
+
+  const loadStats = async () => {
+    setStatsLoading(true)
+    try {
+      const { count: totalUsers } = await supabase.from('profiles').select('id', { count: 'exact', head: true })
+      const { count: totalPosts } = await supabase.from('posts').select('id', { count: 'exact', head: true })
+      const { count: totalGroups } = await supabase.from('groups').select('id', { count: 'exact', head: true })
+      const { count: totalLfgPosts } = await supabase.from('lfg_posts').select('id', { count: 'exact', head: true })
+      const { count: openLfgPosts } = await supabase.from('lfg_posts').select('id', { count: 'exact', head: true }).eq('status', 'open')
+      const { count: totalConnections } = await supabase.from('connections').select('id', { count: 'exact', head: true }).eq('status', 'accepted')
+      const { count: totalMessages } = await supabase.from('messages').select('id', { count: 'exact', head: true })
+
+      const sevenDaysAgo = new Date(Date.now() - 7 * 86400000).toISOString()
+      const thirtyDaysAgo = new Date(Date.now() - 30 * 86400000).toISOString()
+
+      const { count: signups7d } = await supabase.from('profiles').select('id', { count: 'exact', head: true }).gte('created_at', sevenDaysAgo)
+      const { count: signups30d } = await supabase.from('profiles').select('id', { count: 'exact', head: true }).gte('created_at', thirtyDaysAgo)
+      const { count: posts7d } = await supabase.from('posts').select('id', { count: 'exact', head: true }).gte('created_at', sevenDaysAgo)
+
+      setStats({
+        totalUsers: totalUsers || 0,
+        totalPosts: totalPosts || 0,
+        totalGroups: totalGroups || 0,
+        totalLfgPosts: totalLfgPosts || 0,
+        openLfgPosts: openLfgPosts || 0,
+        totalConnections: totalConnections || 0,
+        totalMessages: totalMessages || 0,
+        signups7d: signups7d || 0,
+        signups30d: signups30d || 0,
+        posts7d: posts7d || 0,
+      })
+    } catch (err) {
+      console.error('Failed to load stats:', err)
+    }
+    setStatsLoading(false)
+  }
 
   const getName = (id) => {
     const p = profiles[id]
@@ -75,18 +114,60 @@ export default function AdminPanel({ theme }) {
 
   if (currentUser?.email?.toLowerCase() !== ADMIN_EMAIL.toLowerCase()) return null
 
+  const STAT_CARDS = stats ? [
+    { label: 'Total Users', value: stats.totalUsers, icon: '👤', color: '#6c63ff', sub: `+${stats.signups7d} this week` },
+    { label: 'Total Posts', value: stats.totalPosts, icon: '📝', color: '#10b981', sub: `+${stats.posts7d} this week` },
+    { label: 'Groups', value: stats.totalGroups, icon: '👥', color: '#f59e0b' },
+    { label: 'LFG Posts', value: stats.totalLfgPosts, icon: '🎯', color: '#ec4899', sub: `${stats.openLfgPosts} open` },
+    { label: 'Connections', value: stats.totalConnections, icon: '🤝', color: '#3b82f6' },
+    { label: 'Messages Sent', value: stats.totalMessages, icon: '💬', color: '#8b5cf6' },
+  ] : []
+
   return (
     <div style={{ minHeight: 'calc(100vh - 64px)', background: bg, padding: '2rem' }}>
-      <div style={{ maxWidth: '900px', margin: '0 auto' }}>
+      <div style={{ maxWidth: '1000px', margin: '0 auto' }}>
 
         <div style={{ marginBottom: '2rem' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '0.5rem' }}>
             <span style={{ fontSize: '1.5rem' }}>🛡️</span>
             <h1 style={{ fontSize: '1.75rem', fontWeight: '800', color: textPrimary, margin: 0 }}>Admin Panel</h1>
           </div>
-          <p style={{ color: textMuted }}>Review and manage user reports</p>
+          <p style={{ color: textMuted }}>Platform overview and report moderation</p>
         </div>
 
+        {/* Growth summary strip */}
+        {stats && (
+          <div style={{ display: 'flex', gap: '1.5rem', marginBottom: '1.5rem', flexWrap: 'wrap' }}>
+            <div style={{ background: 'rgba(16,185,129,0.08)', border: '1px solid rgba(16,185,129,0.25)', borderRadius: '10px', padding: '0.6rem 1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <span style={{ fontSize: '0.85rem', color: '#10b981', fontWeight: '700' }}>📈 {stats.signups7d} new users (7d)</span>
+            </div>
+            <div style={{ background: 'rgba(108,99,255,0.08)', border: '1px solid rgba(108,99,255,0.25)', borderRadius: '10px', padding: '0.6rem 1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <span style={{ fontSize: '0.85rem', color: '#a78bfa', fontWeight: '700' }}>📈 {stats.signups30d} new users (30d)</span>
+            </div>
+          </div>
+        )}
+
+        {/* Stat cards */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '1rem', marginBottom: '2rem' }}>
+          {statsLoading ? (
+            [1,2,3,4,5,6].map(i => (
+              <div key={i} style={{ background: cardBg, border: `1px solid ${cardBorder}`, borderRadius: '14px', padding: '1.25rem', height: '90px', animation: 'pulse 1.5s infinite' }} />
+            ))
+          ) : (
+            STAT_CARDS.map(stat => (
+              <div key={stat.label} style={{ background: cardBg, border: `1px solid ${cardBorder}`, borderRadius: '14px', padding: '1.25rem' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.4rem' }}>
+                  <span style={{ fontSize: '1.1rem' }}>{stat.icon}</span>
+                </div>
+                <p style={{ fontSize: '1.8rem', fontWeight: '800', color: stat.color, margin: 0, lineHeight: 1 }}>{stat.value.toLocaleString()}</p>
+                <p style={{ color: textMuted, fontSize: '0.8rem', marginTop: '0.35rem' }}>{stat.label}</p>
+                {stat.sub && <p style={{ color: stat.color, fontSize: '0.7rem', marginTop: '0.15rem', fontWeight: '600' }}>{stat.sub}</p>}
+              </div>
+            ))
+          )}
+        </div>
+
+        {/* Existing report stats */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '1rem', marginBottom: '2rem' }}>
           {[
             { label: 'Total Reports', value: reports.length, color: '#6c63ff' },
@@ -211,6 +292,7 @@ export default function AdminPanel({ theme }) {
           </div>
         )}
       </div>
+      <style>{`@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }`}</style>
     </div>
   )
 }
