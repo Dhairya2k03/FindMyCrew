@@ -28,6 +28,7 @@ export default function Profile() {
   const [stats, setStats] = useState({ posts: 0, likesReceived: 0, connections: 0, groups: 0 })
   const [statsLoading, setStatsLoading] = useState(true)
   const [memberSince, setMemberSince] = useState(null)
+  const [blockedCount, setBlockedCount] = useState(0)
   const navigate = useNavigate()
   const searchTimeout = useRef(null)
   const avatarInputRef = useRef(null)
@@ -48,6 +49,11 @@ export default function Profile() {
         if (data.created_at) setMemberSince(data.created_at)
       }
       await loadStats(user.id)
+      const { count: blockedCountResult } = await supabase
+        .from('blocked_users')
+        .select('id', { count: 'exact', head: true })
+        .eq('blocker_id', user.id)
+      setBlockedCount(blockedCountResult || 0)
     }
     load()
   }, [])
@@ -210,7 +216,7 @@ export default function Profile() {
       </div>
 
       {/* Stats & Activity */}
-      <div style={{ marginBottom: '2rem', padding: '1.5rem', background: 'rgba(255,255,255,0.03)', borderRadius: '16px', border: '1px solid rgba(255,255,255,0.08)' }}>
+      <div style={{ marginBottom: '1.5rem', padding: '1.5rem', background: 'rgba(255,255,255,0.03)', borderRadius: '16px', border: '1px solid rgba(255,255,255,0.08)' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
           <p style={{ fontWeight: '600', fontSize: '0.95rem', margin: 0 }}>Stats & Activity</p>
           <p style={{ color: '#666', fontSize: '0.78rem', margin: 0 }}>Member since {formatMemberSince(memberSince)}</p>
@@ -226,6 +232,23 @@ export default function Profile() {
             </div>
           ))}
         </div>
+      </div>
+
+      {/* Privacy & Safety */}
+      <div
+        onClick={() => navigate('/blocked')}
+        style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginBottom: '2rem', padding: '1.25rem 1.5rem', background: 'rgba(255,255,255,0.03)', borderRadius: '16px', border: '1px solid rgba(255,255,255,0.08)', cursor: 'pointer', transition: 'border-color 0.2s' }}
+        onMouseEnter={e => e.currentTarget.style.borderColor = 'rgba(108,99,255,0.3)'}
+        onMouseLeave={e => e.currentTarget.style.borderColor = 'rgba(255,255,255,0.08)'}
+      >
+        <span style={{ fontSize: '1.4rem' }}>🚫</span>
+        <div style={{ flex: 1 }}>
+          <p style={{ fontWeight: '600', fontSize: '0.95rem', margin: 0 }}>Blocked Users</p>
+          <p style={{ color: '#888', fontSize: '0.8rem', margin: '0.15rem 0 0' }}>
+            {blockedCount > 0 ? `${blockedCount} user${blockedCount !== 1 ? 's' : ''} blocked` : 'Manage who you\'ve blocked'}
+          </p>
+        </div>
+        <span style={{ color: '#555', fontSize: '1rem' }}>→</span>
       </div>
 
       {/* Username */}
