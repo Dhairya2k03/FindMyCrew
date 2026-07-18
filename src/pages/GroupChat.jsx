@@ -53,11 +53,16 @@ export default function GroupChat({ theme }) {
   const [editContent, setEditContent] = useState('')
   const [showMentions, setShowMentions] = useState(false)
   const [mentionQuery, setMentionQuery] = useState('')
+  const [typingUsers, setTypingUsers] = useState({})
   const bottomRef = useRef(null)
   const iconInputRef = useRef(null)
   const [uploadingIcon, setUploadingIcon] = useState(false)
   const searchInputRef = useRef(null)
   const msgRefs = useRef({})
+  const groupChannelRef = useRef(null)
+  const typingTimeoutRef = useRef(null)
+  const othersTypingTimeoutsRef = useRef({})
+  const currentUserIdRef = useRef(null)
 
   const isLight = theme === 'light'
   const bg          = isLight ? '#f0f0f7'                : '#0f0f1a'
@@ -74,6 +79,7 @@ export default function GroupChat({ theme }) {
     const load = async () => {
       const { data: { user } } = await supabase.auth.getUser()
       setCurrentUser(user)
+      currentUserIdRef.current = user.id
       const { data: groupData } = await supabase.from('groups').select('*').eq('id', groupId).single()
       setGroup(groupData)
       const { data: msgs } = await supabase.from('group_messages').select('*').eq('group_id', groupId).order('created_at', { ascending: true })
@@ -180,8 +186,29 @@ export default function GroupChat({ theme }) {
         const v = payload.new
         setPollVotes(prev => ({ ...prev, [v.poll_id]: (prev[v.poll_id] || []).map(x => x.id === v.id ? v : x) }))
       })
+      .on('broadcast', { event: 'typing' }, ({ payload }) => {
+        const myId = currentUserIdRef.current
+        if (!myId || payload.userId === myId) return
+        clearTimeout(othersTypingTimeoutsRef.current[payload.userId])
+        if (payload.typing) {
+          setTypingUsers(prev => ({ ...prev, [payload.userId]: true }))
+          // Safety net in case a "stopped typing" event is dropped (tab close, network blip)
+          othersTypingTimeoutsRef.current[payload.userId] = setTimeout(() => {
+            setTypingUsers(prev => { const n = { ...prev }; delete n[payload.userId]; return n })
+          }, 4000)
+        } else {
+          setTypingUsers(prev => { const n = { ...prev }; delete n[payload.userId]; return n })
+        }
+      })
       .subscribe()
-    return () => supabase.removeChannel(channel)
+    groupChannelRef.current = channel
+    return () => {
+      supabase.removeChannel(channel)
+      groupChannelRef.current = null
+      clearTimeout(typingTimeoutRef.current)
+      Object.values(othersTypingTimeoutsRef.current).forEach(clearTimeout)
+      othersTypingTimeoutsRef.current = {}
+    }
   }, [groupId])
 
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages, polls])
@@ -212,6 +239,8 @@ export default function GroupChat({ theme }) {
     const content = newMessage.trim()
     setNewMessage('')
     setShowMentions(false)
+    clearTimeout(typingTimeoutRef.current)
+    groupChannelRef.current?.send({ type: 'broadcast', event: 'typing', payload: { typing: false, userId: currentUser.id } })
     const tempMsg = { id: makeTempId(), group_id: groupId, sender_id: currentUser.id, content, created_at: new Date() }
     setMessages(prev => [...prev, tempMsg])
     const { data } = await supabase.from('group_messages').insert({ group_id: groupId, sender_id: currentUser.id, content }).select().single()
@@ -447,6 +476,12 @@ export default function GroupChat({ theme }) {
     } else {
       setShowMentions(false)
     }
+    if (!groupChannelRef.current || !currentUser) return
+    groupChannelRef.current.send({ type: 'broadcast', event: 'typing', payload: { typing: true, userId: currentUser.id } })
+    clearTimeout(typingTimeoutRef.current)
+    typingTimeoutRef.current = setTimeout(() => {
+      groupChannelRef.current?.send({ type: 'broadcast', event: 'typing', payload: { typing: false, userId: currentUser.id } })
+    }, 1500)
   }
 
   const insertMention = (username) => {
@@ -488,6 +523,12 @@ export default function GroupChat({ theme }) {
   const avatarColors = ['#6c63ff', '#f59e0b', '#10b981', '#ef4444', '#3b82f6', '#ec4899']
   const getColor = (uid) => { const n = getName(uid); return avatarColors[n.charCodeAt(0) % avatarColors.length] }
   const truncate = (text, n = 50) => text?.length > n ? text.substring(0, n) + '...' : text
+
+  const typingNames = Object.keys(typingUsers).map(uid => getName(uid))
+  const typingLabel = typingNames.length === 0 ? '' :
+    typingNames.length === 1 ? `${typingNames[0]} is typing...` :
+    typingNames.length === 2 ? `${typingNames[0]} and ${typingNames[1]} are typing...` :
+    `${typingNames.length} people are typing...`
 
   const Avatar = ({ userId, size = 28 }) => {
     const url = getAvatar(userId)
@@ -923,6 +964,16 @@ export default function GroupChat({ theme }) {
                 </div>
               )
             })}
+            {typingLabel && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', paddingLeft: '2.5rem' }}>
+                <div style={{ background: bubbleOther, padding: '0.55rem 0.9rem', borderRadius: '18px 18px 18px 4px', display: 'flex', gap: '4px', alignItems: 'center' }}>
+                  <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#a78bfa', animation: 'bounce 1s infinite' }} />
+                  <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#a78bfa', animation: 'bounce 1s infinite 0.2s' }} />
+                  <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#a78bfa', animation: 'bounce 1s infinite 0.4s' }} />
+                </div>
+                <span style={{ fontSize: '0.78rem', color: mutedColor }}>{typingLabel}</span>
+              </div>
+            )}
             <div ref={bottomRef} />
           </div>
 
@@ -954,6 +1005,10 @@ export default function GroupChat({ theme }) {
       )}
 
       <style>{`
+        @keyframes bounce {
+          0%, 60%, 100% { transform: translateY(0); }
+          30% { transform: translateY(-6px); }
+        }
         @media (max-width: 768px) {
           .desktop-sidebar { display: none !important; }
           .mobile-header { display: flex !important; }
