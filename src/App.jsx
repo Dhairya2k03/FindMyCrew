@@ -1,76 +1,94 @@
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
-import { useEffect, useState } from 'react'
-import { supabase } from './lib/supabaseClient'
-import { updateLoginStreak } from './lib/streak'
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { useEffect, useState } from 'react';
+import { supabase } from './lib/supabaseClient';
+import { updateLoginStreak } from './lib/streak';
 
-import Navbar from './components/Navbar'
-import BlockedUsers from './pages/BlockedUsers'
-import Home from './pages/Home'
-import Login from './pages/Login'
-import Profile from './pages/Profile'
-import Browse from './pages/Browse'
-import Connections from './pages/Connections'
-import Chat from './pages/Chat'
-import GameLevels from './pages/GameLevels'
-import Groups from './pages/Groups'
-import GroupChat from './pages/GroupChat'
-import ResetPassword from './pages/ResetPassword'
-import InvitePage from './pages/InvitePage'
-import UserProfile from './pages/UserProfile'
-import Notifications from './pages/Notifications'
-import Search from './pages/Search'
-import Messages from './pages/Messages'
-import AchievementsPage from './pages/AchievementsPage'
-import AdminPanel from './pages/AdminPanel'
-import Feed from './pages/Feed'
-import LFG from './pages/LFG'
+import Navbar from './components/Navbar';
+import BlockedUsers from './pages/BlockedUsers';
+import Home from './pages/Home';
+import Login from './pages/Login';
+import Profile from './pages/Profile';
+import Browse from './pages/Browse';
+import Connections from './pages/Connections';
+import Chat from './pages/Chat';
+import GameLevels from './pages/GameLevels';
+import Groups from './pages/Groups';
+import GroupChat from './pages/GroupChat';
+import ResetPassword from './pages/ResetPassword';
+import InvitePage from './pages/InvitePage';
+import UserProfile from './pages/UserProfile';
+import Notifications from './pages/Notifications';
+import Search from './pages/Search';
+import Messages from './pages/Messages';
+import AchievementsPage from './pages/AchievementsPage';
+import AdminPanel from './pages/AdminPanel';
+import Feed from './pages/Feed';
+import LFG from './pages/LFG';
 
 function ProtectedRoute({ user, children }) {
-  if (!user) return <Navigate to="/login" />
-  return children
+  if (!user) return <Navigate to="/login" />;
+  return children;
 }
 
 export default function App() {
-  const [user, setUser] = useState(null)
-  const [loading, setLoading] = useState(true)
-  const [theme, setTheme] = useState(() => localStorage.getItem('theme') || 'dark')
-  const [streakInfo, setStreakInfo] = useState(null)
+  const [user, setUser] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [theme, setTheme] = useState(() => localStorage.getItem('theme') || 'dark');
+  const [streakInfo, setStreakInfo] = useState(null);
 
   useEffect(() => {
-    document.body.classList.toggle('light', theme === 'light')
-    localStorage.setItem('theme', theme)
-  }, [theme])
+    document.body.classList.toggle('light', theme === 'light');
+    localStorage.setItem('theme', theme);
+  }, [theme]);
 
   useEffect(() => {
     const init = async () => {
-      const { data } = await supabase.auth.getSession()
-      const sessionUser = data?.session?.user ?? null
-      setUser(sessionUser)
-      setLoading(false)
-      if (sessionUser) {
-        const result = await updateLoginStreak(sessionUser.id)
-        setStreakInfo(result)
-      }
-    }
+      const { data } = await supabase.auth.getSession();
+      const sessionUser = data?.session?.user ?? null;
 
-    init()
+      if (sessionUser) {
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('is_banned, ban_reason')
+          .eq('id', sessionUser.id)
+          .single();
+
+        if (profile?.is_banned) {
+          alert('Your account has been suspended.' + (profile.ban_reason ? ` Reason: ${profile.ban_reason}` : ''));
+          await supabase.auth.signOut();
+          setUser(null);
+          setLoading(false);
+          return;
+        }
+      }
+
+      setUser(sessionUser);
+      setLoading(false);
+
+      if (sessionUser) {
+        const result = await updateLoginStreak(sessionUser.id);
+        setStreakInfo(result);
+      }
+    };
+
+    init();
 
     const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
-      const sessionUser = session?.user ?? null
-      setUser(sessionUser)
+      const sessionUser = session?.user ?? null;
+      setUser(sessionUser);
       if (sessionUser) {
-        updateLoginStreak(sessionUser.id).then(setStreakInfo)
+        updateLoginStreak(sessionUser.id).then(setStreakInfo);
       } else {
-        setStreakInfo(null)
+        setStreakInfo(null);
       }
-    })
+    });
 
     return () => {
-      listener.subscription.unsubscribe()
-    }
-  }, [])
+      listener.subscription.unsubscribe();
+    };
+  }, []);
 
-  if (loading) return null
+  if (loading) return null;
 
   return (
     <BrowserRouter>
@@ -103,5 +121,5 @@ export default function App() {
         <Route path="*" element={<Navigate to={user ? "/" : "/login"} />} />
       </Routes>
     </BrowserRouter>
-  )
+  );
 }
