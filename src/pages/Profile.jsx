@@ -332,8 +332,8 @@ export default function Profile() {
         </div>
       )}
 
-      <button onClick={saveProfile} style={{ padding: '0.85rem 2.5rem', background: 'linear-gradient(135deg, #6c63ff, #a78bfa)', color: 'white', border: 'none', borderRadius: '10px', fontSize: '1rem', fontWeight: '600', cursor: 'pointer', fontFamily: 'Inter, sans-serif', boxShadow: '0 0 30px rgba(108, 99, 255, 0.3)' }}>
-        Save & Set Game Levels →
+      <button onClick={() => navigate('/blocked')} style={{ background: 'none', border: 'none', color: '#a78bfa', cursor: 'pointer', fontFamily: 'Inter, sans-serif', fontSize: '0.85rem', marginBottom: '1.5rem', display: 'block', padding: 0 }}>
+  🚫 Manage Blocked Users
       </button>
     </div>
   )

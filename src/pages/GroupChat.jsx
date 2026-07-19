@@ -53,16 +53,15 @@ export default function GroupChat({ theme }) {
   const [editContent, setEditContent] = useState('')
   const [showMentions, setShowMentions] = useState(false)
   const [mentionQuery, setMentionQuery] = useState('')
-  const [typingUsers, setTypingUsers] = useState({})
+  const [typingMembers, setTypingMembers] = useState({})
+  const [memberReads, setMemberReads] = useState({})
   const bottomRef = useRef(null)
   const iconInputRef = useRef(null)
   const [uploadingIcon, setUploadingIcon] = useState(false)
   const searchInputRef = useRef(null)
   const msgRefs = useRef({})
-  const groupChannelRef = useRef(null)
+  const typingChannelRef = useRef(null)
   const typingTimeoutRef = useRef(null)
-  const othersTypingTimeoutsRef = useRef({})
-  const currentUserIdRef = useRef(null)
 
   const isLight = theme === 'light'
   const bg          = isLight ? '#f0f0f7'                : '#0f0f1a'
@@ -79,7 +78,6 @@ export default function GroupChat({ theme }) {
     const load = async () => {
       const { data: { user } } = await supabase.auth.getUser()
       setCurrentUser(user)
-      currentUserIdRef.current = user.id
       const { data: groupData } = await supabase.from('groups').select('*').eq('id', groupId).single()
       setGroup(groupData)
       const { data: msgs } = await supabase.from('group_messages').select('*').eq('group_id', groupId).order('created_at', { ascending: true })
@@ -143,6 +141,21 @@ export default function GroupChat({ theme }) {
         .on('presence', { event: 'join' }, ({ key }) => setOnlineMembers(prev => new Set([...prev, key])))
         .on('presence', { event: 'leave' }, ({ key }) => setOnlineMembers(prev => { const n = new Set(prev); n.delete(key); return n }))
         .subscribe(async (status) => { if (status === 'SUBSCRIBED') await presenceCh.track({ online_at: new Date().toISOString() }) })
+
+      // Typing broadcast channel for this group
+      const typingCh = supabase.channel(`group-typing-${groupId}`)
+      typingCh.on('broadcast', { event: 'typing' }, ({ payload }) => {
+        if (payload.userId === user.id) return
+        setTypingMembers(prev => ({ ...prev, [payload.userId]: payload.typing }))
+      }).subscribe()
+      typingChannelRef.current = typingCh
+
+      // Read receipts: pull everyone's last_read_at, then stamp our own
+      const { data: readData } = await supabase.from('group_members').select('user_id, last_read_at').eq('group_id', groupId)
+      const readMap = {}
+      readData?.forEach(m => { readMap[m.user_id] = m.last_read_at })
+      setMemberReads(readMap)
+      await supabase.from('group_members').update({ last_read_at: new Date().toISOString() }).eq('group_id', groupId).eq('user_id', user.id)
     }
     load()
   }, [groupId])
@@ -151,6 +164,9 @@ export default function GroupChat({ theme }) {
     const channel = supabase.channel(`group-${groupId}`)
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'group_messages', filter: `group_id=eq.${groupId}` }, payload => {
         setMessages(prev => { const exists = prev.some(m => m.id === payload.new.id); if (exists) return prev; return [...prev, payload.new] })
+        if (currentUser) {
+          supabase.from('group_members').update({ last_read_at: new Date().toISOString() }).eq('group_id', groupId).eq('user_id', currentUser.id).then(() => {})
+        }
       })
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'group_announcements', filter: `group_id=eq.${groupId}` }, payload => {
         setAnnouncements(prev => [payload.new, ...prev])
@@ -186,28 +202,10 @@ export default function GroupChat({ theme }) {
         const v = payload.new
         setPollVotes(prev => ({ ...prev, [v.poll_id]: (prev[v.poll_id] || []).map(x => x.id === v.id ? v : x) }))
       })
-      .on('broadcast', { event: 'typing' }, ({ payload }) => {
-        const myId = currentUserIdRef.current
-        if (!myId || payload.userId === myId) return
-        clearTimeout(othersTypingTimeoutsRef.current[payload.userId])
-        if (payload.typing) {
-          setTypingUsers(prev => ({ ...prev, [payload.userId]: true }))
-          // Safety net in case a "stopped typing" event is dropped (tab close, network blip)
-          othersTypingTimeoutsRef.current[payload.userId] = setTimeout(() => {
-            setTypingUsers(prev => { const n = { ...prev }; delete n[payload.userId]; return n })
-          }, 4000)
-        } else {
-          setTypingUsers(prev => { const n = { ...prev }; delete n[payload.userId]; return n })
-        }
-      })
       .subscribe()
-    groupChannelRef.current = channel
     return () => {
       supabase.removeChannel(channel)
-      groupChannelRef.current = null
-      clearTimeout(typingTimeoutRef.current)
-      Object.values(othersTypingTimeoutsRef.current).forEach(clearTimeout)
-      othersTypingTimeoutsRef.current = {}
+      if (typingChannelRef.current) supabase.removeChannel(typingChannelRef.current)
     }
   }, [groupId])
 
@@ -240,7 +238,7 @@ export default function GroupChat({ theme }) {
     setNewMessage('')
     setShowMentions(false)
     clearTimeout(typingTimeoutRef.current)
-    groupChannelRef.current?.send({ type: 'broadcast', event: 'typing', payload: { typing: false, userId: currentUser.id } })
+    typingChannelRef.current?.send({ type: 'broadcast', event: 'typing', payload: { typing: false, userId: currentUser.id } })
     const tempMsg = { id: makeTempId(), group_id: groupId, sender_id: currentUser.id, content, created_at: new Date() }
     setMessages(prev => [...prev, tempMsg])
     const { data } = await supabase.from('group_messages').insert({ group_id: groupId, sender_id: currentUser.id, content }).select().single()
@@ -476,11 +474,11 @@ export default function GroupChat({ theme }) {
     } else {
       setShowMentions(false)
     }
-    if (!groupChannelRef.current || !currentUser) return
-    groupChannelRef.current.send({ type: 'broadcast', event: 'typing', payload: { typing: true, userId: currentUser.id } })
+    if (!typingChannelRef.current || !currentUser) return
+    typingChannelRef.current.send({ type: 'broadcast', event: 'typing', payload: { typing: true, userId: currentUser.id } })
     clearTimeout(typingTimeoutRef.current)
     typingTimeoutRef.current = setTimeout(() => {
-      groupChannelRef.current?.send({ type: 'broadcast', event: 'typing', payload: { typing: false, userId: currentUser.id } })
+      typingChannelRef.current?.send({ type: 'broadcast', event: 'typing', payload: { typing: false, userId: currentUser.id } })
     }, 1500)
   }
 
@@ -523,12 +521,6 @@ export default function GroupChat({ theme }) {
   const avatarColors = ['#6c63ff', '#f59e0b', '#10b981', '#ef4444', '#3b82f6', '#ec4899']
   const getColor = (uid) => { const n = getName(uid); return avatarColors[n.charCodeAt(0) % avatarColors.length] }
   const truncate = (text, n = 50) => text?.length > n ? text.substring(0, n) + '...' : text
-
-  const typingNames = Object.keys(typingUsers).map(uid => getName(uid))
-  const typingLabel = typingNames.length === 0 ? '' :
-    typingNames.length === 1 ? `${typingNames[0]} is typing...` :
-    typingNames.length === 2 ? `${typingNames[0]} and ${typingNames[1]} are typing...` :
-    `${typingNames.length} people are typing...`
 
   const Avatar = ({ userId, size = 28 }) => {
     const url = getAvatar(userId)
@@ -618,6 +610,8 @@ export default function GroupChat({ theme }) {
 
   const sortedMembers = [...members].sort((a, b) => { const order = { admin: 0, elder: 1, member: 2 }; return (order[a.role] ?? 2) - (order[b.role] ?? 2) })
   const formatEventTime = (dt) => new Date(dt).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+
+  const lastMessageId = [...messages].reverse().find(m => !m.is_system)?.id
 
   const renderSidebar = () => (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', height: '100%', overflowY: 'auto' }}>
@@ -951,6 +945,12 @@ export default function GroupChat({ theme }) {
                     {msg.edited_at && !isEditing && (
                       <span style={{ fontSize: '0.65rem', color: mutedColor, marginTop: '0.15rem' }}>(edited)</span>
                     )}
+                    {isMine && msg.id === lastMessageId && (() => {
+                      const seenBy = sortedMembers.filter(m => m.user_id !== currentUser?.id && memberReads[m.user_id] && new Date(memberReads[m.user_id]) >= new Date(msg.created_at))
+                      return seenBy.length > 0 ? (
+                        <p style={{ fontSize: '0.65rem', color: mutedColor, marginTop: '0.15rem' }}>Seen by {seenBy.map(m => getName(m.user_id)).join(', ')}</p>
+                      ) : null
+                    })()}
                     {hasReactions && (
                       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.25rem', marginTop: '0.3rem' }}>
                         {Object.entries(groupedRxns).map(([emoji, userIds]) => (
@@ -964,18 +964,14 @@ export default function GroupChat({ theme }) {
                 </div>
               )
             })}
-            {typingLabel && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', paddingLeft: '2.5rem' }}>
-                <div style={{ background: bubbleOther, padding: '0.55rem 0.9rem', borderRadius: '18px 18px 18px 4px', display: 'flex', gap: '4px', alignItems: 'center' }}>
-                  <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#a78bfa', animation: 'bounce 1s infinite' }} />
-                  <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#a78bfa', animation: 'bounce 1s infinite 0.2s' }} />
-                  <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#a78bfa', animation: 'bounce 1s infinite 0.4s' }} />
-                </div>
-                <span style={{ fontSize: '0.78rem', color: mutedColor }}>{typingLabel}</span>
-              </div>
-            )}
             <div ref={bottomRef} />
           </div>
+
+          {Object.entries(typingMembers).some(([, v]) => v) && (
+            <p style={{ fontSize: '0.78rem', color: '#a78bfa', margin: '0 0 0.4rem 0.25rem' }}>
+              {Object.entries(typingMembers).filter(([, v]) => v).map(([uid]) => getName(uid)).join(', ')} typing...
+            </p>
+          )}
 
           <div style={{ display: 'flex', gap: '0.75rem', position: 'relative' }}>
             {showMentions && filteredMentions.length > 0 && (
@@ -1005,10 +1001,6 @@ export default function GroupChat({ theme }) {
       )}
 
       <style>{`
-        @keyframes bounce {
-          0%, 60%, 100% { transform: translateY(0); }
-          30% { transform: translateY(-6px); }
-        }
         @media (max-width: 768px) {
           .desktop-sidebar { display: none !important; }
           .mobile-header { display: flex !important; }

@@ -4,6 +4,7 @@ import { supabase } from './lib/supabaseClient'
 import { updateLoginStreak } from './lib/streak'
 
 import Navbar from './components/Navbar'
+import BlockedUsers from './pages/BlockedUsers'
 import Home from './pages/Home'
 import Login from './pages/Login'
 import Profile from './pages/Profile'
@@ -88,6 +89,7 @@ export default function App() {
         <Route path="/groups/:groupId" element={<ProtectedRoute user={user}><GroupChat theme={theme} /></ProtectedRoute>} />
         <Route path="/invite/:inviteCode" element={<ProtectedRoute user={user}><InvitePage theme={theme} /></ProtectedRoute>} />
         <Route path="/reset-password" element={<ResetPassword />} />
+        <Route path="/blocked" element={<ProtectedRoute user={user}><BlockedUsers theme={theme} /></ProtectedRoute>} />
         <Route path="/messages" element={<ProtectedRoute user={user}><Messages theme={theme} /></ProtectedRoute>} />
         <Route path="/user/:userId" element={<ProtectedRoute user={user}><UserProfile theme={theme} /></ProtectedRoute>} />
         <Route path="/notifications" element={<ProtectedRoute user={user}><Notifications theme={theme} /></ProtectedRoute>} />
