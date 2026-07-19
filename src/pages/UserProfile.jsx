@@ -13,6 +13,11 @@ const ACHIEVEMENT_CONFIG = {
   profile_complete: { label: 'All Set', icon: '✅', desc: 'Completed your profile' },
 }
 
+const isActivelyPlaying = (profile) => {
+  if (!profile?.currently_playing || !profile?.currently_playing_at) return false
+  return (new Date() - new Date(profile.currently_playing_at)) < 4 * 60 * 60 * 1000 // 4hr window
+}
+
 export default function UserProfile({ theme }) {
   const { userId } = useParams()
   const navigate = useNavigate()
@@ -156,6 +161,7 @@ export default function UserProfile({ theme }) {
   const getColor = (n) => avatarColors[(n || '?').charCodeAt(0) % avatarColors.length]
   const POST_TYPE_LABELS = { general: '💬', lf_partner: '🎮', lf_team: '👥', clip: '🎬' }
   const isOwn = currentUser?.id === userId
+  const playing = isActivelyPlaying(profile)
 
   const formatTime = (date) => {
     const d = new Date(date)
@@ -193,6 +199,13 @@ export default function UserProfile({ theme }) {
           </div>
         )}
         <h2 style={{ fontWeight: '700', fontSize: '1.5rem', marginBottom: '0.25rem', color: textColor }}>{name}</h2>
+
+        {playing && (
+          <p style={{ fontSize: '0.85rem', color: '#10b981', marginBottom: '0.75rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}>
+            <span style={{ width: '7px', height: '7px', borderRadius: '50%', background: '#10b981', flexShrink: 0 }} />
+            Playing {profile.currently_playing}
+          </p>
+        )}
 
         {profile?.bio && <p style={{ color: mutedColor, fontSize: '0.9rem', marginBottom: '1rem', lineHeight: 1.5, maxWidth: '400px', margin: '0 auto 1rem' }}>{profile.bio}</p>}
 
@@ -340,11 +353,17 @@ export default function UserProfile({ theme }) {
             {profile.hobbies.map(game => {
               const level = profile.game_levels?.[game]
               const isMutual = mutualGames.includes(game)
+              const isCurrentlyPlayingThis = playing && profile.currently_playing === game
               return (
-                <div key={game} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.75rem 1rem', background: isMutual ? 'rgba(108,99,255,0.08)' : isLight ? 'rgba(0,0,0,0.03)' : 'rgba(255,255,255,0.02)', borderRadius: '10px', border: isMutual ? '1px solid rgba(108,99,255,0.2)' : `1px solid ${border}` }}>
+                <div key={game} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.75rem 1rem', background: isMutual ? 'rgba(108,99,255,0.08)' : isLight ? 'rgba(0,0,0,0.03)' : 'rgba(255,255,255,0.02)', borderRadius: '10px', border: isCurrentlyPlayingThis ? '1px solid rgba(16,185,129,0.35)' : isMutual ? '1px solid rgba(108,99,255,0.2)' : `1px solid ${border}` }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                     {isMutual && <span style={{ fontSize: '0.7rem', color: '#a78bfa' }}>●</span>}
                     <p style={{ fontWeight: '500', fontSize: '0.95rem', color: textColor }}>{game}</p>
+                    {isCurrentlyPlayingThis && (
+                      <span style={{ fontSize: '0.68rem', color: '#10b981', background: 'rgba(16,185,129,0.12)', border: '1px solid rgba(16,185,129,0.3)', borderRadius: '100px', padding: '1px 7px' }}>
+                        🟢 Playing now
+                      </span>
+                    )}
                   </div>
                   {level && <span style={{ fontSize: '0.85rem', color: mutedColor }}>{LEVEL_ICONS[level]} {level.charAt(0).toUpperCase() + level.slice(1)}</span>}
                 </div>

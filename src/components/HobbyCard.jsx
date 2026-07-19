@@ -4,13 +4,12 @@ import { supabase } from '../lib/supabaseClient'
 
 const avatarColors = ['#6c63ff', '#f59e0b', '#10b981', '#ef4444', '#3b82f6', '#ec4899']
 
-const getMatchColor = (score) => {
-  if (score >= 70) return '#10b981'
-  if (score >= 40) return '#f59e0b'
-  return '#888'
+const isActivelyPlaying = (profile) => {
+  if (!profile?.currently_playing || !profile?.currently_playing_at) return false
+  return (new Date() - new Date(profile.currently_playing_at)) < 4 * 60 * 60 * 1000 // 4hr window
 }
 
-export default function HobbyCard({ profile, currentUserId, connectionStatus, theme, matchScore }) {
+export default function HobbyCard({ profile, currentUserId, connectionStatus, theme }) {
   const [status, setStatus] = useState(connectionStatus)
   const navigate = useNavigate()
 
@@ -37,6 +36,7 @@ export default function HobbyCard({ profile, currentUserId, connectionStatus, th
   const name    = profile.username || profile.email?.split('@')[0] || 'Player'
   const color   = avatarColors[name.charCodeAt(0) % avatarColors.length]
   const initial = name[0]?.toUpperCase()
+  const playing = isActivelyPlaying(profile)
 
   const getButtonLabel = () => {
     if (status === 'accepted') return '✓ Connected'
@@ -99,23 +99,17 @@ export default function HobbyCard({ profile, currentUserId, connectionStatus, th
             {initial}
           </div>
         )}
-        <h3 style={{ fontSize: '0.95rem', fontWeight: '600', color: textPrimary, wordBreak: 'break-word', flex: 1, minWidth: 0 }}>
-          {name}
-        </h3>
-        {typeof matchScore === 'number' && matchScore > 0 && (
-          <span style={{
-            flexShrink: 0,
-            fontSize: '0.72rem',
-            fontWeight: '700',
-            color: getMatchColor(matchScore),
-            background: `${getMatchColor(matchScore)}18`,
-            border: `1px solid ${getMatchColor(matchScore)}40`,
-            borderRadius: '100px',
-            padding: '2px 8px',
-          }}>
-            {matchScore}% match
-          </span>
-        )}
+        <div style={{ minWidth: 0 }}>
+          <h3 style={{ fontSize: '0.95rem', fontWeight: '600', color: textPrimary, wordBreak: 'break-word', margin: 0 }}>
+            {name}
+          </h3>
+          {playing && (
+            <p style={{ fontSize: '0.72rem', color: '#10b981', margin: '2px 0 0', display: 'flex', alignItems: 'center', gap: '4px' }}>
+              <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#10b981', flexShrink: 0 }} />
+              Playing {profile.currently_playing}
+            </p>
+          )}
+        </div>
       </div>
 
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.3rem', marginBottom: '1rem' }}>

@@ -20,6 +20,7 @@ export default function Profile() {
   const [discordUsername, setDiscordUsername] = useState('')
   const [selectedPlatforms, setSelectedPlatforms] = useState([])
   const [selectedGames, setSelectedGames] = useState([])
+  const [currentlyPlaying, setCurrentlyPlaying] = useState('')
   const [searchQuery, setSearchQuery] = useState('')
   const [searchResults, setSearchResults] = useState([])
   const [searching, setSearching] = useState(false)
@@ -46,6 +47,7 @@ export default function Profile() {
         setSelectedPlatforms(data.platforms || [])
         setSelectedGames(data.hobbies || [])
         setAvatarUrl(data.avatar_url || null)
+        setCurrentlyPlaying(data.currently_playing || '')
         if (data.created_at) setMemberSince(data.created_at)
       }
       await loadStats(user.id)
@@ -129,7 +131,12 @@ export default function Profile() {
   }
 
   const toggleGame = (game) => {
-    setSelectedGames(prev => prev.includes(game) ? prev.filter(g => g !== game) : [...prev, game])
+    setSelectedGames(prev => {
+      const next = prev.includes(game) ? prev.filter(g => g !== game) : [...prev, game]
+      // If the game currently marked "currently playing" got removed, clear it
+      if (currentlyPlaying === game && !next.includes(game)) setCurrentlyPlaying('')
+      return next
+    })
   }
 
   const searchGames = async (query) => {
@@ -162,6 +169,8 @@ export default function Profile() {
       discord_username: discordUsername,
       platforms: selectedPlatforms,
       hobbies: selectedGames,
+      currently_playing: currentlyPlaying || null,
+      currently_playing_at: currentlyPlaying ? new Date().toISOString() : null,
       updated_at: new Date()
     })
     if (error) alert(error.message)
@@ -332,8 +341,27 @@ export default function Profile() {
         </div>
       )}
 
+      {/* Currently Playing */}
+      {selectedGames.length > 0 && (
+        <>
+          <label style={labelStyle}>Currently Playing</label>
+          <select
+            value={currentlyPlaying}
+            onChange={e => setCurrentlyPlaying(e.target.value)}
+            style={{ ...inputStyle, cursor: 'pointer' }}
+          >
+            <option value="">Not set</option>
+            {selectedGames.map(g => <option key={g} value={g}>{g}</option>)}
+          </select>
+        </>
+      )}
+
       <button onClick={() => navigate('/blocked')} style={{ background: 'none', border: 'none', color: '#a78bfa', cursor: 'pointer', fontFamily: 'Inter, sans-serif', fontSize: '0.85rem', marginBottom: '1.5rem', display: 'block', padding: 0 }}>
-  🚫 Manage Blocked Users
+        🚫 Manage Blocked Users
+      </button>
+
+      <button onClick={saveProfile} style={{ padding: '0.85rem 2.5rem', background: 'linear-gradient(135deg, #6c63ff, #a78bfa)', color: 'white', border: 'none', borderRadius: '10px', fontSize: '1rem', fontWeight: '600', cursor: 'pointer', fontFamily: 'Inter, sans-serif', boxShadow: '0 0 30px rgba(108, 99, 255, 0.3)' }}>
+        Save & Set Game Levels →
       </button>
     </div>
   )
