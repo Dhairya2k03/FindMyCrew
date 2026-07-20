@@ -62,6 +62,8 @@ export default function GroupChat({ theme }) {
   const msgRefs = useRef({})
   const typingChannelRef = useRef(null)
   const typingTimeoutRef = useRef(null)
+  const typingUserTimeouts = useRef({})
+  const presenceChannelRef = useRef(null)
 
   const isLight = theme === 'light'
   const bg          = isLight ? '#f0f0f7'                : '#0f0f1a'
@@ -75,8 +77,11 @@ export default function GroupChat({ theme }) {
   const actionBord  = isLight ? 'rgba(0,0,0,0.12)'       : 'rgba(255,255,255,0.12)'
 
   useEffect(() => {
+    let cancelled = false
+
     const load = async () => {
       const { data: { user } } = await supabase.auth.getUser()
+      if (cancelled) return
       setCurrentUser(user)
       const { data: groupData } = await supabase.from('groups').select('*').eq('id', groupId).single()
       setGroup(groupData)
@@ -135,18 +140,31 @@ export default function GroupChat({ theme }) {
       } catch {
         // no pinned message exists yet — safe to ignore
       }
+
+      // Presence — online member dots
       const presenceCh = supabase.channel('group-presence-' + groupId, { config: { presence: { key: user.id } } })
       presenceCh
         .on('presence', { event: 'sync' }, () => { setOnlineMembers(new Set(Object.keys(presenceCh.presenceState()))) })
         .on('presence', { event: 'join' }, ({ key }) => setOnlineMembers(prev => new Set([...prev, key])))
         .on('presence', { event: 'leave' }, ({ key }) => setOnlineMembers(prev => { const n = new Set(prev); n.delete(key); return n }))
         .subscribe(async (status) => { if (status === 'SUBSCRIBED') await presenceCh.track({ online_at: new Date().toISOString() }) })
+      presenceChannelRef.current = presenceCh
 
       // Typing broadcast channel for this group
       const typingCh = supabase.channel(`group-typing-${groupId}`)
       typingCh.on('broadcast', { event: 'typing' }, ({ payload }) => {
         if (payload.userId === user.id) return
-        setTypingMembers(prev => ({ ...prev, [payload.userId]: payload.typing }))
+        clearTimeout(typingUserTimeouts.current[payload.userId])
+        if (payload.typing) {
+          setTypingMembers(prev => ({ ...prev, [payload.userId]: true }))
+          // Safety net: auto-clear if a "stopped typing" broadcast never
+          // arrives (closed tab, dropped connection, etc.)
+          typingUserTimeouts.current[payload.userId] = setTimeout(() => {
+            setTypingMembers(prev => ({ ...prev, [payload.userId]: false }))
+          }, 3000)
+        } else {
+          setTypingMembers(prev => ({ ...prev, [payload.userId]: false }))
+        }
       }).subscribe()
       typingChannelRef.current = typingCh
 
@@ -158,6 +176,14 @@ export default function GroupChat({ theme }) {
       await supabase.from('group_members').update({ last_read_at: new Date().toISOString() }).eq('group_id', groupId).eq('user_id', user.id)
     }
     load()
+
+    return () => {
+      cancelled = true
+      if (presenceChannelRef.current) supabase.removeChannel(presenceChannelRef.current)
+      if (typingChannelRef.current) supabase.removeChannel(typingChannelRef.current)
+      Object.values(typingUserTimeouts.current).forEach(clearTimeout)
+      typingUserTimeouts.current = {}
+    }
   }, [groupId])
 
   useEffect(() => {
@@ -205,9 +231,8 @@ export default function GroupChat({ theme }) {
       .subscribe()
     return () => {
       supabase.removeChannel(channel)
-      if (typingChannelRef.current) supabase.removeChannel(typingChannelRef.current)
     }
-  }, [groupId])
+  }, [groupId, currentUser])
 
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages, polls])
 
@@ -387,7 +412,6 @@ export default function GroupChat({ theme }) {
     }
   }
 
-  
   const uploadGroupIcon = async (e) => {
     const file = e.target.files[0]
     if (!file) return
@@ -968,7 +992,12 @@ export default function GroupChat({ theme }) {
           </div>
 
           {Object.entries(typingMembers).some(([, v]) => v) && (
-            <p style={{ fontSize: '0.78rem', color: '#a78bfa', margin: '0 0 0.4rem 0.25rem' }}>
+            <p style={{ fontSize: '0.78rem', color: '#a78bfa', margin: '0 0 0.4rem 0.25rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+              <span style={{ display: 'inline-flex', gap: '2px' }}>
+                <span style={{ width: '4px', height: '4px', borderRadius: '50%', background: '#a78bfa', animation: 'bounce 1s infinite' }} />
+                <span style={{ width: '4px', height: '4px', borderRadius: '50%', background: '#a78bfa', animation: 'bounce 1s infinite 0.2s' }} />
+                <span style={{ width: '4px', height: '4px', borderRadius: '50%', background: '#a78bfa', animation: 'bounce 1s infinite 0.4s' }} />
+              </span>
               {Object.entries(typingMembers).filter(([, v]) => v).map(([uid]) => getName(uid)).join(', ')} typing...
             </p>
           )}
@@ -1001,6 +1030,10 @@ export default function GroupChat({ theme }) {
       )}
 
       <style>{`
+        @keyframes bounce {
+          0%, 60%, 100% { transform: translateY(0); }
+          30% { transform: translateY(-6px); }
+        }
         @media (max-width: 768px) {
           .desktop-sidebar { display: none !important; }
           .mobile-header { display: flex !important; }

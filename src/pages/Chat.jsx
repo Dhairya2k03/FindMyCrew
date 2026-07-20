@@ -488,6 +488,10 @@ export default function Chat({ theme }) {
   }
   const status = getStatus()
 
+  // "Currently playing" is only a trustworthy signal while the person is
+  // actually online — otherwise it could be a stale status from days ago.
+  const otherPlayingNow = isOtherOnline ? otherUser?.currently_playing : null
+
   const filteredConversations = conversations.filter(c => {
     if (!convSearch.trim()) return true
     const cName = c.profile?.username || c.profile?.email?.split('@')[0] || ''
@@ -563,6 +567,7 @@ export default function Chat({ theme }) {
               const isActive = c.otherId === userId
               const isMineLast = c.lastMessage.sender_id === currentUser?.id
               const isOnline = !!onlineIds[c.otherId]
+              const cPlayingNow = isOnline ? c.profile?.currently_playing : null
               return (
                 <button
                   key={c.otherId}
@@ -583,16 +588,22 @@ export default function Chat({ theme }) {
                       <p style={{ margin: 0, fontWeight: isActive ? '700' : '600', color: textColor, fontSize: '0.9rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{cName}</p>
                       <span style={{ fontSize: '0.7rem', color: mutedColor, flexShrink: 0 }}>{formatConvTime(c.lastMessage.created_at)}</span>
                     </div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.4rem' }}>
-                      <p style={{ margin: '0.1rem 0 0', color: c.unreadCount > 0 ? textColor : mutedColor, fontWeight: c.unreadCount > 0 ? '600' : '400', fontSize: '0.8rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                        {isMineLast ? 'You: ' : ''}{truncate(c.lastMessage.content, 28)}
+                    {cPlayingNow ? (
+                      <p style={{ margin: '0.1rem 0 0', color: '#10b981', fontWeight: '600', fontSize: '0.75rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        🎮 Playing {cPlayingNow}
                       </p>
-                      {c.unreadCount > 0 && (
-                        <span style={{ background: 'linear-gradient(135deg, #6c63ff, #a78bfa)', color: 'white', fontSize: '0.68rem', fontWeight: '700', borderRadius: '100px', minWidth: '18px', height: '18px', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 5px', flexShrink: 0 }}>
-                          {c.unreadCount > 9 ? '9+' : c.unreadCount}
-                        </span>
-                      )}
-                    </div>
+                    ) : (
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.4rem' }}>
+                        <p style={{ margin: '0.1rem 0 0', color: c.unreadCount > 0 ? textColor : mutedColor, fontWeight: c.unreadCount > 0 ? '600' : '400', fontSize: '0.8rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                          {isMineLast ? 'You: ' : ''}{truncate(c.lastMessage.content, 28)}
+                        </p>
+                        {c.unreadCount > 0 && (
+                          <span style={{ background: 'linear-gradient(135deg, #6c63ff, #a78bfa)', color: 'white', fontSize: '0.68rem', fontWeight: '700', borderRadius: '100px', minWidth: '18px', height: '18px', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 5px', flexShrink: 0 }}>
+                            {c.unreadCount > 9 ? '9+' : c.unreadCount}
+                          </span>
+                        )}
+                      </div>
+                    )}
                   </div>
                 </button>
               )
@@ -636,6 +647,9 @@ export default function Chat({ theme }) {
                   <span style={{ width: '7px', height: '7px', borderRadius: '50%', background: '#4caf50', flexShrink: 0 }} />
                 ) : null}
                 {status.text}
+                {otherPlayingNow && (
+                  <span style={{ color: '#10b981', fontWeight: '600' }}>· 🎮 Playing {otherPlayingNow}</span>
+                )}
               </p>
             </div>
             <button
@@ -912,6 +926,12 @@ export default function Chat({ theme }) {
           </div>
           <p style={{ fontWeight: '700', fontSize: '1.15rem', color: textColor, margin: 0, textAlign: 'center' }}>{name}</p>
           <p style={{ fontSize: '0.82rem', color: status.color, margin: '0.25rem 0 0', textAlign: 'center' }}>{status.text}</p>
+          {otherPlayingNow && (
+            <div style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', marginTop: '0.6rem', background: 'rgba(16,185,129,0.1)', border: '1px solid rgba(16,185,129,0.25)', borderRadius: '100px', padding: '0.3rem 0.85rem' }}>
+              <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#10b981' }} />
+              <span style={{ color: '#10b981', fontSize: '0.8rem', fontWeight: '600' }}>Playing {otherPlayingNow}</span>
+            </div>
+          )}
 
           <button
             onClick={() => navigate(`/user/${userId}`)}
