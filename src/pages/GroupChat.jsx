@@ -546,6 +546,10 @@ export default function GroupChat({ theme }) {
   const getColor = (uid) => { const n = getName(uid); return avatarColors[n.charCodeAt(0) % avatarColors.length] }
   const truncate = (text, n = 50) => text?.length > n ? text.substring(0, n) + '...' : text
 
+  // "Currently playing" is only shown for members currently marked online in
+  // this group's presence channel — same trust rule used elsewhere.
+  const getPlayingNow = (uid) => onlineMembers.has(uid) ? profiles[uid]?.currently_playing : null
+
   const Avatar = ({ userId, size = 28 }) => {
     const url = getAvatar(userId)
     const n = getName(userId)
@@ -713,13 +717,23 @@ export default function GroupChat({ theme }) {
         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.5rem', borderRadius: '8px', background: 'rgba(245,158,11,0.08)' }}>
             <Avatar userId={group?.leader_id} />
-            <p style={{ fontSize: '0.85rem', fontWeight: '500', flex: 1, color: textColor }}>{getName(group?.leader_id)}</p>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <p style={{ fontSize: '0.85rem', fontWeight: '500', color: textColor, margin: 0 }}>{getName(group?.leader_id)}</p>
+              {getPlayingNow(group?.leader_id) && (
+                <p style={{ fontSize: '0.68rem', color: '#10b981', margin: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>🎮 {getPlayingNow(group?.leader_id)}</p>
+              )}
+            </div>
             <RoleBadge role="leader" />
           </div>
           {sortedMembers.map(m => (
             <div key={m.id} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.5rem', borderRadius: '8px', background: m.role === 'admin' ? 'rgba(108,99,255,0.06)' : m.role === 'elder' ? 'rgba(16,185,129,0.04)' : 'transparent' }}>
               <Avatar userId={m.user_id} />
-              <p style={{ fontSize: '0.85rem', flex: 1, color: textColor }}>{getName(m.user_id)}</p>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <p style={{ fontSize: '0.85rem', color: textColor, margin: 0 }}>{getName(m.user_id)}</p>
+                {getPlayingNow(m.user_id) && (
+                  <p style={{ fontSize: '0.68rem', color: '#10b981', margin: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>🎮 {getPlayingNow(m.user_id)}</p>
+                )}
+              </div>
               <RoleBadge role={m.role || 'member'} />
               <RoleMenu member={m} />
             </div>
