@@ -109,6 +109,7 @@ export default function Navbar({ theme, setTheme, user, streakInfo }) {
           fontWeight: '700',
           fontSize: compact ? '0.85rem' : '0.9rem',
           whiteSpace: 'nowrap',
+          flexShrink: 0,
         }}
       >
         🔥 {streak}
@@ -131,6 +132,8 @@ export default function Navbar({ theme, setTheme, user, streakInfo }) {
           position: 'sticky',
           top: 0,
           zIndex: 100,
+          width: '100%',
+          maxWidth: '100vw',
         }}
       >
         <Link
@@ -138,7 +141,8 @@ export default function Navbar({ theme, setTheme, user, streakInfo }) {
           style={{
             fontWeight: '800',
             fontSize: '1.2rem',
-            marginRight: 'auto',
+            marginRight: '1rem',
+            flexShrink: 0,
             background: 'linear-gradient(135deg, #6c63ff, #a78bfa)',
             WebkitBackgroundClip: 'text',
             WebkitTextFillColor: 'transparent',
@@ -149,7 +153,19 @@ export default function Navbar({ theme, setTheme, user, streakInfo }) {
         </Link>
 
         {/* Desktop Nav */}
-        <div className="desktop-nav" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+        <div
+          className="desktop-nav"
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.5rem',
+            marginLeft: 'auto',
+            overflowX: 'auto',
+            overflowY: 'hidden',
+            scrollbarWidth: 'thin',
+            minWidth: 0,
+          }}
+        >
           <StreakBadge />
 
           {navItems.map(({ path, label, badge }) => (
@@ -168,6 +184,7 @@ export default function Navbar({ theme, setTheme, user, streakInfo }) {
                 gap: '0.3rem',
                 whiteSpace: 'nowrap',
                 textDecoration: 'none',
+                flexShrink: 0,
               }}
             >
               {label}
@@ -189,7 +206,19 @@ export default function Navbar({ theme, setTheme, user, streakInfo }) {
               )}
             </Link>
           ))}
+        </div>
 
+        {/* Fixed controls: always visible, never scroll away */}
+        <div
+          className="desktop-nav-fixed"
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.5rem',
+            flexShrink: 0,
+            marginLeft: '0.5rem',
+          }}
+        >
           <button
             onClick={() => setTheme(isLight ? 'dark' : 'light')}
             style={{
@@ -209,7 +238,6 @@ export default function Navbar({ theme, setTheme, user, streakInfo }) {
           <button
             onClick={handleLogout}
             style={{
-              marginLeft: '0.25rem',
               padding: '0.5rem 1.25rem',
               background: 'transparent',
               color: inactiveColor,
@@ -218,6 +246,7 @@ export default function Navbar({ theme, setTheme, user, streakInfo }) {
               cursor: 'pointer',
               fontFamily: 'Inter, sans-serif',
               fontSize: '0.9rem',
+              whiteSpace: 'nowrap',
             }}
           >
             Logout
@@ -375,8 +404,16 @@ export default function Navbar({ theme, setTheme, user, streakInfo }) {
       <style>{`
         @media (max-width: 768px) {
           .desktop-nav { display: none !important; }
+          .desktop-nav-fixed { display: none !important; }
           .hamburger { display: block !important; }
           .mobile-streak { display: block !important; margin-left: auto; margin-right: 0.5rem; }
+        }
+        .desktop-nav::-webkit-scrollbar {
+          height: 4px;
+        }
+        .desktop-nav::-webkit-scrollbar-thumb {
+          background: rgba(108,99,255,0.3);
+          border-radius: 2px;
         }
       `}</style>
     </>
