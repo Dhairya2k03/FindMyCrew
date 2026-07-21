@@ -1,69 +1,72 @@
-import { Link, useNavigate, useLocation } from 'react-router-dom'
-import { useState, useEffect } from 'react'
-import { supabase } from '../lib/supabaseClient'
-import { ADMIN_EMAIL } from '../lib/constants'
+import { Link, useNavigate, useLocation } from 'react-router-dom';
+import { useState, useEffect } from 'react';
+import { supabase } from '../lib/supabaseClient';
+import { ADMIN_EMAIL } from '../lib/constants';
 
 export default function Navbar({ theme, setTheme, user, streakInfo }) {
-  const navigate = useNavigate()
-  const location = useLocation()
-  const [unreadMessages, setUnreadMessages] = useState(0)
-  const [unreadNotifs, setUnreadNotifs] = useState(0)
-  const [menuOpen, setMenuOpen] = useState(false)
+  const navigate = useNavigate();
+  const location = useLocation();
+  const [unreadMessages, setUnreadMessages] = useState(0);
+  const [unreadNotifs, setUnreadNotifs] = useState(0);
+  const [menuOpen, setMenuOpen] = useState(false);
 
-  const isAdmin = user?.email?.toLowerCase() === ADMIN_EMAIL.toLowerCase()
-  const isLight = theme === 'light'
+  const isAdmin = user?.email?.toLowerCase() === ADMIN_EMAIL.toLowerCase();
+  const isLight = theme === 'light';
+  const streak = streakInfo?.streak || 0;
 
   useEffect(() => {
     const load = async () => {
-      if (!user) return
-      const chatMatch = location.pathname.match(/\/chat\/([^/]+)/)
-      const openChatUserId = chatMatch ? chatMatch[1] : null
+      if (!user) return;
 
+      const chatMatch = location.pathname.match(/\/chat\/([^/]+)/);
+      const openChatUserId = chatMatch ? chatMatch[1] : null;
+
+      // Unread messages (excluding currently open chat)
       const { data: msgs } = await supabase
         .from('messages')
         .select('id, sender_id')
         .eq('receiver_id', user.id)
-        .is('read_at', null)
+        .is('read_at', null);
 
-      const filtered = msgs?.filter(m => m.sender_id !== openChatUserId) || []
-      setUnreadMessages(filtered.length)
+      const filtered = msgs?.filter(m => m.sender_id !== openChatUserId) || [];
+      setUnreadMessages(filtered.length);
 
+      // Unread notifications
       const { data: notifs } = await supabase
         .from('notifications')
         .select('id')
         .eq('user_id', user.id)
-        .eq('read', false)
+        .eq('read', false);
 
-      setUnreadNotifs(notifs?.length || 0)
-    }
+      setUnreadNotifs(notifs?.length || 0);
+    };
 
-    load()
+    load();
 
     const channel = supabase.channel('navbar-badges')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'messages' }, load)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'notifications' }, load)
-      .subscribe()
+      .subscribe();
 
-    return () => supabase.removeChannel(channel)
-  }, [location.pathname, user])
+    return () => supabase.removeChannel(channel);
+  }, [location.pathname, user]);
 
   useEffect(() => {
-    setMenuOpen(false)
-  }, [location.pathname])
+    setMenuOpen(false);
+  }, [location.pathname]);
 
   const handleLogout = async () => {
-    // Clear "currently playing" status so it doesn't linger
     if (user) {
       await supabase
         .from('profiles')
         .update({ currently_playing: null, currently_playing_at: null })
-        .eq('id', user.id)
+        .eq('id', user.id);
     }
-    await supabase.auth.signOut()
-    navigate('/login')
-  }
+    await supabase.auth.signOut();
+    navigate('/login');
+  };
 
-  const isActive = (path) => location.pathname === path
+  const isActive = (path) => location.pathname === path;
 
   const baseNavItems = [
     { path: '/', label: 'Home' },
@@ -76,22 +79,21 @@ export default function Navbar({ theme, setTheme, user, streakInfo }) {
     { path: '/profile', label: 'Profile' },
     { path: '/feed', label: '📰 Feed' },
     { path: '/lfg', label: '🎯 LFG' },
-  ]
+    { path: '/leaderboard', label: '🏆 Leaderboard' },
+  ];
 
   const navItems = isAdmin
     ? [...baseNavItems, { path: '/admin', label: '🛡️ Admin' }]
-    : baseNavItems
+    : baseNavItems;
 
-  const navBg = isLight ? 'rgba(240,240,247,0.95)' : 'rgba(15,15,26,0.95)'
-  const navBorder = isLight ? 'rgba(108,99,255,0.15)' : 'rgba(108,99,255,0.2)'
-  const activeColor = '#6c63ff'
-  const inactiveColor = isLight ? '#666' : '#aaa'
-  const activeBg = 'rgba(108,99,255,0.1)'
-
-  const streak = streakInfo?.streak || 0
+  const navBg = isLight ? 'rgba(240,240,247,0.95)' : 'rgba(15,15,26,0.95)';
+  const navBorder = isLight ? 'rgba(108,99,255,0.15)' : 'rgba(108,99,255,0.2)';
+  const activeColor = '#6c63ff';
+  const inactiveColor = isLight ? '#666' : '#aaa';
+  const activeBg = 'rgba(108,99,255,0.1)';
 
   const StreakBadge = ({ compact = false }) => {
-    if (!streak) return null
+    if (!streak) return null;
     return (
       <div
         title={`${streak} day streak · Longest: ${streakInfo?.longestStreak || streak}`}
@@ -105,42 +107,48 @@ export default function Navbar({ theme, setTheme, user, streakInfo }) {
           borderRadius: '100px',
           color: '#f59e0b',
           fontWeight: '700',
-          fontSize: compact ? '0.85rem' : '0.85rem',
+          fontSize: compact ? '0.85rem' : '0.9rem',
           whiteSpace: 'nowrap',
         }}
       >
         🔥 {streak}
       </div>
-    )
-  }
+    );
+  };
 
   return (
     <>
-      <nav style={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: '0.5rem',
-        padding: '0 1.5rem',
-        height: '64px',
-        background: navBg,
-        backdropFilter: 'blur(10px)',
-        borderBottom: `1px solid ${navBorder}`,
-        position: 'sticky',
-        top: 0,
-        zIndex: 100
-      }}>
-        <Link to="/" style={{
-          fontWeight: '800',
-          fontSize: '1.2rem',
-          marginRight: 'auto',
-          background: 'linear-gradient(135deg, #6c63ff, #a78bfa)',
-          WebkitBackgroundClip: 'text',
-          WebkitTextFillColor: 'transparent',
-          textDecoration: 'none'
-        }}>
+      <nav
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: '0.5rem',
+          padding: '0 1.5rem',
+          height: '64px',
+          background: navBg,
+          backdropFilter: 'blur(10px)',
+          borderBottom: `1px solid ${navBorder}`,
+          position: 'sticky',
+          top: 0,
+          zIndex: 100,
+        }}
+      >
+        <Link
+          to="/"
+          style={{
+            fontWeight: '800',
+            fontSize: '1.2rem',
+            marginRight: 'auto',
+            background: 'linear-gradient(135deg, #6c63ff, #a78bfa)',
+            WebkitBackgroundClip: 'text',
+            WebkitTextFillColor: 'transparent',
+            textDecoration: 'none',
+          }}
+        >
           🎮 FindMyCrew
         </Link>
 
+        {/* Desktop Nav */}
         <div className="desktop-nav" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
           <StreakBadge />
 
@@ -159,21 +167,23 @@ export default function Navbar({ theme, setTheme, user, streakInfo }) {
                 alignItems: 'center',
                 gap: '0.3rem',
                 whiteSpace: 'nowrap',
-                textDecoration: 'none'
+                textDecoration: 'none',
               }}
             >
               {label}
               {badge > 0 && (
-                <span style={{
-                  background: '#6c63ff',
-                  color: 'white',
-                  borderRadius: '100px',
-                  fontSize: '0.65rem',
-                  fontWeight: '700',
-                  padding: '1px 6px',
-                  minWidth: '18px',
-                  textAlign: 'center'
-                }}>
+                <span
+                  style={{
+                    background: '#6c63ff',
+                    color: 'white',
+                    borderRadius: '100px',
+                    fontSize: '0.65rem',
+                    fontWeight: '700',
+                    padding: '1px 6px',
+                    minWidth: '18px',
+                    textAlign: 'center',
+                  }}
+                >
                   {badge > 9 ? '9+' : badge}
                 </span>
               )}
@@ -189,7 +199,7 @@ export default function Navbar({ theme, setTheme, user, streakInfo }) {
               borderRadius: '8px',
               cursor: 'pointer',
               fontSize: '1rem',
-              color: inactiveColor
+              color: inactiveColor,
             }}
             title="Toggle theme"
           >
@@ -207,7 +217,7 @@ export default function Navbar({ theme, setTheme, user, streakInfo }) {
               borderRadius: '8px',
               cursor: 'pointer',
               fontFamily: 'Inter, sans-serif',
-              fontSize: '0.9rem'
+              fontSize: '0.9rem',
             }}
           >
             Logout
@@ -219,6 +229,7 @@ export default function Navbar({ theme, setTheme, user, streakInfo }) {
           <StreakBadge compact />
         </div>
 
+        {/* Hamburger */}
         <button
           onClick={() => setMenuOpen(!menuOpen)}
           className="hamburger"
@@ -230,54 +241,61 @@ export default function Navbar({ theme, setTheme, user, streakInfo }) {
             fontSize: '1.5rem',
             cursor: 'pointer',
             padding: '0.5rem',
-            position: 'relative'
+            position: 'relative',
           }}
         >
           {menuOpen ? '✕' : '☰'}
           {!menuOpen && (unreadMessages > 0 || unreadNotifs > 0) && (
-            <span style={{
-              position: 'absolute',
-              top: '6px',
-              right: '6px',
-              width: '8px',
-              height: '8px',
-              borderRadius: '50%',
-              background: '#6c63ff'
-            }} />
+            <span
+              style={{
+                position: 'absolute',
+                top: '6px',
+                right: '6px',
+                width: '8px',
+                height: '8px',
+                borderRadius: '50%',
+                background: '#6c63ff',
+              }}
+            />
           )}
         </button>
       </nav>
 
       {/* Mobile Menu */}
       {menuOpen && (
-        <div style={{
-          position: 'fixed',
-          top: '64px',
-          left: 0,
-          right: 0,
-          bottom: 0,
-          background: isLight ? 'rgba(240,240,247,0.98)' : 'rgba(15,15,26,0.98)',
-          zIndex: 99,
-          display: 'flex',
-          flexDirection: 'column',
-          padding: '1.5rem',
-          gap: '0.5rem',
-          overflowY: 'auto'
-        }}>
+        <div
+          style={{
+            position: 'fixed',
+            top: '64px',
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: isLight ? 'rgba(240,240,247,0.98)' : 'rgba(15,15,26,0.98)',
+            zIndex: 99,
+            display: 'flex',
+            flexDirection: 'column',
+            padding: '1.5rem',
+            gap: '0.5rem',
+            overflowY: 'auto',
+          }}
+        >
           {streak > 0 && (
-            <div style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '0.5rem',
-              padding: '0.85rem 1.25rem',
-              background: 'rgba(245,158,11,0.1)',
-              border: '1px solid rgba(245,158,11,0.3)',
-              borderRadius: '12px',
-              color: '#f59e0b',
-              fontWeight: '700',
-              marginBottom: '0.25rem'
-            }}>
-              🔥 {streak} day streak {streakInfo?.longestStreak > streak ? `· Best: ${streakInfo.longestStreak}` : ''}
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.5rem',
+                padding: '0.85rem 1.25rem',
+                background: 'rgba(245,158,11,0.1)',
+                border: '1px solid rgba(245,158,11,0.3)',
+                borderRadius: '12px',
+                color: '#f59e0b',
+                fontWeight: '700',
+                marginBottom: '0.25rem',
+              }}
+            >
+              🔥 {streak} day streak{' '}
+              {streakInfo?.longestStreak > streak ? `· Best: ${streakInfo.longestStreak}` : ''}
             </div>
           )}
 
@@ -296,19 +314,21 @@ export default function Navbar({ theme, setTheme, user, streakInfo }) {
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'space-between',
-                textDecoration: 'none'
+                textDecoration: 'none',
               }}
             >
               {label === '🔔' ? '🔔 Notifications' : label === '🔍' ? '🔍 Search' : label}
               {badge > 0 && (
-                <span style={{
-                  background: '#6c63ff',
-                  color: 'white',
-                  borderRadius: '100px',
-                  fontSize: '0.75rem',
-                  fontWeight: '700',
-                  padding: '2px 8px'
-                }}>
+                <span
+                  style={{
+                    background: '#6c63ff',
+                    color: 'white',
+                    borderRadius: '100px',
+                    fontSize: '0.75rem',
+                    fontWeight: '700',
+                    padding: '2px 8px',
+                  }}
+                >
                   {badge > 9 ? '9+' : badge}
                 </span>
               )}
@@ -326,7 +346,7 @@ export default function Navbar({ theme, setTheme, user, streakInfo }) {
               fontFamily: 'Inter, sans-serif',
               fontSize: '1.05rem',
               color: isLight ? '#333' : 'white',
-              textAlign: 'left'
+              textAlign: 'left',
             }}
           >
             {isLight ? '🌙 Dark Mode' : '☀️ Light Mode'}
@@ -344,7 +364,7 @@ export default function Navbar({ theme, setTheme, user, streakInfo }) {
               cursor: 'pointer',
               fontFamily: 'Inter, sans-serif',
               fontSize: '1rem',
-              fontWeight: '600'
+              fontWeight: '600',
             }}
           >
             Logout
@@ -360,5 +380,5 @@ export default function Navbar({ theme, setTheme, user, streakInfo }) {
         }
       `}</style>
     </>
-  )
+  );
 }

@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabaseClient'
+import { captureThumbnail, supportsTrimming } from '../lib/videoUtils'
+import VideoTrimmer from '../components/VideoTrimmer'
 
 const POST_TYPES = [
   { id: 'general', label: '💬 General', desc: 'Share anything gaming' },
@@ -22,7 +24,6 @@ export default function Feed({ theme }) {
   const [likes, setLikes] = useState({})
   const [comments, setComments] = useState({})
   const [views, setViews] = useState({})
-  const [bookmarks, setBookmarks] = useState([])
   const [currentUser, setCurrentUser] = useState(null)
   const [loading, setLoading] = useState(true)
   const [showCreate, setShowCreate] = useState(false)
@@ -37,6 +38,7 @@ export default function Feed({ theme }) {
   const [newComment, setNewComment] = useState('')
   const [followingMap, setFollowingMap] = useState({})
   const [showcasedPostIds, setShowcasedPostIds] = useState([])
+  const [trimmerOpen, setTrimmerOpen] = useState(false)
   const mediaInputRef = useRef(null)
   const currentUserRef = useRef(null)
   const viewedPostsRef = useRef(new Set())
@@ -67,10 +69,6 @@ export default function Feed({ theme }) {
       // Load showcased posts
       const { data: profileData } = await supabase.from('profiles').select('showcase_posts').eq('id', user.id).single()
       setShowcasedPostIds(profileData?.showcase_posts || [])
-
-      // Load bookmarks
-      const { data: bookmarksData } = await supabase.from('post_bookmarks').select('post_id').eq('user_id', user.id)
-      setBookmarks((bookmarksData || []).map(b => b.post_id))
 
       await loadPosts()
       setLoading(false)
@@ -219,34 +217,23 @@ export default function Feed({ theme }) {
     await supabase.from('profiles').update({ showcase_posts: newShowcase }).eq('id', currentUser.id)
   }
 
-  const toggleBookmark = async (postId) => {
-    const user = currentUserRef.current
-    if (!user) return
-    const isBookmarked = bookmarks.includes(postId)
-    if (isBookmarked) {
-      setBookmarks(prev => prev.filter(id => id !== postId))
-      const { error } = await supabase.from('post_bookmarks').delete().eq('post_id', postId).eq('user_id', user.id)
-      if (error) {
-        setBookmarks(prev => [...prev, postId])
-        alert(error.message)
-      }
-    } else {
-      setBookmarks(prev => [...prev, postId])
-      const { error } = await supabase.from('post_bookmarks').insert({ post_id: postId, user_id: user.id })
-      // 23505 = unique_violation — harmless no-op if it's already bookmarked
-      if (error && error.code !== '23505') {
-        setBookmarks(prev => prev.filter(id => id !== postId))
-        alert(error.message)
-      }
-    }
-  }
-
   const handleMediaChange = (e) => {
     const file = e.target.files[0]
     if (!file) return
     if (file.size > 50 * 1024 * 1024) return alert('File must be under 50MB')
     setMediaFile(file)
     setMediaPreview(URL.createObjectURL(file))
+    // Offer trimming immediately for videos, if the browser supports it —
+    // the person can skip it and just upload as-is.
+    if (file.type.startsWith('video/') && supportsTrimming()) {
+      setTrimmerOpen(true)
+    }
+  }
+
+  const handleTrimmed = (trimmedFile) => {
+    setMediaFile(trimmedFile)
+    setMediaPreview(URL.createObjectURL(trimmedFile))
+    setTrimmerOpen(false)
   }
 
   const createPost = async () => {
@@ -254,6 +241,9 @@ export default function Feed({ theme }) {
     setUploading(true)
     let mediaUrl = null
     let mediaType = null
+    let thumbnailUrl = null
+    let durationSeconds = null
+
     if (mediaFile) {
       const ext = mediaFile.name.split('.').pop()
       const fileName = `${currentUser.id}-${Date.now()}.${ext}`
@@ -263,12 +253,31 @@ export default function Feed({ theme }) {
       if (uploadError) { alert('Upload failed: ' + uploadError.message); setUploading(false); return }
       const { data: { publicUrl } } = supabase.storage.from(bucket).getPublicUrl(fileName)
       mediaUrl = publicUrl
+
+      if (mediaType === 'video') {
+        try {
+          const { blob: thumbBlob, duration } = await captureThumbnail(mediaFile)
+          durationSeconds = duration
+          const thumbName = `${currentUser.id}-${Date.now()}-thumb.jpg`
+          const { error: thumbError } = await supabase.storage.from('post-images').upload(thumbName, thumbBlob, { contentType: 'image/jpeg' })
+          if (!thumbError) {
+            const { data: { publicUrl: thumbUrl } } = supabase.storage.from('post-images').getPublicUrl(thumbName)
+            thumbnailUrl = thumbUrl
+          }
+        } catch {
+          // Thumbnail generation is best-effort — a missing thumbnail just
+          // falls back to the video element's own poster frame.
+        }
+      }
     }
+
     const { error } = await supabase.from('posts').insert({
       user_id: currentUser.id,
       content: newPost.content.trim(),
       media_url: mediaUrl,
       media_type: mediaType,
+      thumbnail_url: thumbnailUrl,
+      duration_seconds: durationSeconds,
       post_type: newPost.post_type,
       game: newPost.game.trim() || null,
       rank: newPost.rank.trim() || null,
@@ -342,7 +351,6 @@ export default function Feed({ theme }) {
   const visiblePosts = posts
     .filter(p => {
       if (feedTab === 'following') return followingIds.includes(p.user_id) || p.user_id === currentUser?.id
-      if (feedTab === 'saved') return bookmarks.includes(p.id)
       if (feedTab === 'trending') {
         const ageHours = (new Date() - new Date(p.created_at)) / 3600000
         return ageHours <= 168 && ((likes[p.id] || []).length + (comments[p.id] || []).length) > 0
@@ -364,18 +372,25 @@ export default function Feed({ theme }) {
   // Pin the single highest-scoring post (views + likes*2) to the top,
   // computed after the current tab/type filters so it stays relevant.
   let trendingPost = null
-  if (visiblePosts.length > 1 && feedTab !== 'saved') {
+  if (visiblePosts.length > 1) {
     const topByScore = [...visiblePosts].sort((a, b) => getScore(b) - getScore(a))[0]
     if (topByScore && getScore(topByScore) > 0) trendingPost = topByScore
   }
   const restPosts = trendingPost ? visiblePosts.filter(p => p.id !== trendingPost.id) : visiblePosts
+
+  const formatDuration = (secs) => {
+    if (!secs) return null
+    const s = Math.round(secs)
+    const m = Math.floor(s / 60)
+    const rem = s % 60
+    return `${m}:${rem.toString().padStart(2, '0')}`
+  }
 
   const PostCard = ({ post, isTrending = false }) => {
     const postLikes = likes[post.id] || []
     const postComments = comments[post.id] || []
     const postViewCount = getViewCount(post.id)
     const isLiked = postLikes.some(l => l.user_id === currentUser?.id)
-    const isBookmarked = bookmarks.includes(post.id)
     const isOwn = post.user_id === currentUser?.id
     const typeColor = TYPE_COLORS[post.post_type] || '#6c63ff'
     const typeLabel = POST_TYPES.find(t => t.id === post.post_type)?.label || '💬 General'
@@ -445,9 +460,16 @@ export default function Feed({ theme }) {
         </div>
 
         {post.media_url && (
-          <div style={{ marginBottom: '0.5rem' }}>
+          <div style={{ marginBottom: '0.5rem', position: 'relative' }}>
             {post.media_type === 'video' ? (
-              <video src={post.media_url} controls style={{ width: '100%', maxHeight: '400px', background: '#000' }} />
+              <>
+                <video src={post.media_url} controls poster={post.thumbnail_url || undefined} style={{ width: '100%', maxHeight: '400px', background: '#000' }} />
+                {post.duration_seconds && (
+                  <span style={{ position: 'absolute', bottom: '10px', right: '10px', background: 'rgba(0,0,0,0.75)', color: 'white', fontSize: '0.72rem', fontWeight: '600', padding: '2px 7px', borderRadius: '5px', pointerEvents: 'none' }}>
+                    {formatDuration(post.duration_seconds)}
+                  </span>
+                )}
+              </>
             ) : (
               <img src={post.media_url} alt="post" style={{ width: '100%', maxHeight: '400px', objectFit: 'cover', cursor: 'pointer' }} onClick={() => window.open(post.media_url, '_blank')} />
             )}
@@ -464,9 +486,6 @@ export default function Feed({ theme }) {
           <span style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', color: mutedColor, fontSize: '0.9rem' }}>
             👁️ {postViewCount}
           </span>
-          <button onClick={() => toggleBookmark(post.id)} style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', background: 'none', border: 'none', color: isBookmarked ? '#f59e0b' : mutedColor, cursor: 'pointer', fontFamily: 'Inter, sans-serif', fontSize: '0.9rem', fontWeight: isBookmarked ? '600' : '400', padding: 0 }}>
-            {isBookmarked ? '🔖' : '📑'} {isBookmarked ? 'Saved' : 'Save'}
-          </button>
           {(post.post_type === 'lf_partner' || post.post_type === 'lf_team') && !isOwn && (
             <button onClick={() => navigate(`/user/${post.user_id}`)} style={{ marginLeft: 'auto', padding: '0.4rem 1rem', background: `${typeColor}18`, color: typeColor, border: `1px solid ${typeColor}40`, borderRadius: '8px', cursor: 'pointer', fontFamily: 'Inter, sans-serif', fontSize: '0.82rem', fontWeight: '600' }}>
               Connect →
@@ -525,7 +544,11 @@ export default function Feed({ theme }) {
                     <img src={post.media_url} alt="" style={{ width: '100%', height: '80px', objectFit: 'cover', borderRadius: '6px', marginBottom: '0.5rem' }} />
                   )}
                   {post.media_url && post.media_type === 'video' && (
-                    <div style={{ width: '100%', height: '80px', background: '#000', borderRadius: '6px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.5rem', marginBottom: '0.5rem' }}>🎬</div>
+                    post.thumbnail_url ? (
+                      <img src={post.thumbnail_url} alt="" style={{ width: '100%', height: '80px', objectFit: 'cover', borderRadius: '6px', marginBottom: '0.5rem' }} />
+                    ) : (
+                      <div style={{ width: '100%', height: '80px', background: '#000', borderRadius: '6px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.5rem', marginBottom: '0.5rem' }}>🎬</div>
+                    )
                   )}
                   <p style={{ fontSize: '0.82rem', color: textColor, lineHeight: 1.3, overflow: 'hidden', textOverflow: 'ellipsis', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', marginBottom: '0.4rem' }}>
                     {post.content || (post.media_type === 'video' ? '🎬 Video clip' : '🖼️ Image post')}
@@ -548,14 +571,9 @@ export default function Feed({ theme }) {
         )}
 
         {/* Feed tabs */}
-        <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1.25rem', background: isLight ? 'rgba(0,0,0,0.04)' : 'rgba(255,255,255,0.04)', borderRadius: '12px', padding: '0.35rem', flexWrap: 'wrap' }}>
-          {[
-            { id: 'all', label: '🌐 For You' },
-            { id: 'following', label: `👥 Following (${followingIds.length})` },
-            { id: 'trending', label: '🔥 Trending' },
-            { id: 'saved', label: `🔖 Saved (${bookmarks.length})` },
-          ].map(tab => (
-            <button key={tab.id} onClick={() => setFeedTab(tab.id)} style={{ flex: 1, minWidth: '110px', padding: '0.6rem', background: feedTab === tab.id ? 'linear-gradient(135deg, #6c63ff, #a78bfa)' : 'transparent', color: feedTab === tab.id ? 'white' : mutedColor, border: 'none', borderRadius: '8px', cursor: 'pointer', fontFamily: 'Inter, sans-serif', fontWeight: feedTab === tab.id ? '600' : '400', fontSize: '0.9rem', transition: 'all 0.2s' }}>
+        <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1.25rem', background: isLight ? 'rgba(0,0,0,0.04)' : 'rgba(255,255,255,0.04)', borderRadius: '12px', padding: '0.35rem' }}>
+          {[{ id: 'all', label: '🌐 For You' }, { id: 'following', label: `👥 Following (${followingIds.length})` }, { id: 'trending', label: '🔥 Trending' }].map(tab => (
+            <button key={tab.id} onClick={() => setFeedTab(tab.id)} style={{ flex: 1, padding: '0.6rem', background: feedTab === tab.id ? 'linear-gradient(135deg, #6c63ff, #a78bfa)' : 'transparent', color: feedTab === tab.id ? 'white' : mutedColor, border: 'none', borderRadius: '8px', cursor: 'pointer', fontFamily: 'Inter, sans-serif', fontWeight: feedTab === tab.id ? '600' : '400', fontSize: '0.9rem', transition: 'all 0.2s' }}>
               {tab.label}
             </button>
           ))}
@@ -587,6 +605,9 @@ export default function Feed({ theme }) {
                   <img src={mediaPreview} alt="preview" style={{ width: '100%', borderRadius: '12px', maxHeight: '300px', objectFit: 'cover' }} />
                 )}
                 <button onClick={() => { setMediaFile(null); setMediaPreview(null) }} style={{ position: 'absolute', top: '8px', right: '8px', background: 'rgba(0,0,0,0.6)', border: 'none', color: 'white', borderRadius: '50%', width: '28px', height: '28px', cursor: 'pointer', fontSize: '0.9rem' }}>✕</button>
+                {mediaFile?.type.startsWith('video/') && supportsTrimming() && (
+                  <button onClick={() => setTrimmerOpen(true)} style={{ position: 'absolute', bottom: '8px', right: '8px', background: 'rgba(0,0,0,0.7)', border: 'none', color: 'white', borderRadius: '8px', padding: '0.4rem 0.75rem', cursor: 'pointer', fontSize: '0.8rem', fontFamily: 'Inter, sans-serif' }}>✂️ Trim</button>
+                )}
               </div>
             )}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -621,15 +642,10 @@ export default function Feed({ theme }) {
           <div style={{ textAlign: 'center', padding: '4rem 2rem', color: mutedColor }}>
             <p style={{ fontSize: '2.5rem', marginBottom: '1rem' }}>🎮</p>
             <p style={{ fontSize: '1rem', marginBottom: '0.5rem', color: textColor, fontWeight: '600' }}>
-              {feedTab === 'following' ? 'No posts from people you follow' : feedTab === 'saved' ? 'No saved posts yet' : 'No posts yet'}
+              {feedTab === 'following' ? 'No posts from people you follow' : 'No posts yet'}
             </p>
-            <p>
-              {feedTab === 'following' ? 'Follow some players to see their posts here!' : feedTab === 'saved' ? 'Tap 📑 Save on any post to bookmark it.' : 'Be the first to post!'}
-            </p>
+            <p>{feedTab === 'following' ? 'Follow some players to see their posts here!' : 'Be the first to post!'}</p>
             {feedTab === 'following' && (
-              <button onClick={() => setFeedTab('all')} style={{ marginTop: '1rem', padding: '0.6rem 1.5rem', background: 'rgba(108,99,255,0.15)', color: '#a78bfa', border: '1px solid rgba(108,99,255,0.3)', borderRadius: '8px', cursor: 'pointer', fontFamily: 'Inter, sans-serif' }}>Browse all posts</button>
-            )}
-            {feedTab === 'saved' && (
               <button onClick={() => setFeedTab('all')} style={{ marginTop: '1rem', padding: '0.6rem 1.5rem', background: 'rgba(108,99,255,0.15)', color: '#a78bfa', border: '1px solid rgba(108,99,255,0.3)', borderRadius: '8px', cursor: 'pointer', fontFamily: 'Inter, sans-serif' }}>Browse all posts</button>
             )}
           </div>
@@ -640,6 +656,11 @@ export default function Feed({ theme }) {
           </div>
         )}
       </div>
+
+      {trimmerOpen && mediaFile && (
+        <VideoTrimmer file={mediaFile} onClose={() => setTrimmerOpen(false)} onTrimmed={handleTrimmed} />
+      )}
+
       <style>{`@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }`}</style>
     </div>
   )

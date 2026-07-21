@@ -55,6 +55,9 @@ export default function GroupChat({ theme }) {
   const [mentionQuery, setMentionQuery] = useState('')
   const [typingMembers, setTypingMembers] = useState({})
   const [memberReads, setMemberReads] = useState({})
+  const [partyPickerOpen, setPartyPickerOpen] = useState(false)
+  const [partySelection, setPartySelection] = useState(new Set())
+  const [creatingParty, setCreatingParty] = useState(false)
   const bottomRef = useRef(null)
   const iconInputRef = useRef(null)
   const [uploadingIcon, setUploadingIcon] = useState(false)
@@ -641,11 +644,41 @@ export default function GroupChat({ theme }) {
 
   const lastMessageId = [...messages].reverse().find(m => !m.is_system)?.id
 
+  const togglePartySelection = (userId) => {
+    setPartySelection(prev => {
+      const n = new Set(prev)
+      if (n.has(userId)) n.delete(userId); else n.add(userId)
+      return n
+    })
+  }
+
+  const createParty = async () => {
+    if (partySelection.size === 0) return alert('Select at least one person')
+    setCreatingParty(true)
+    const { data: partyData, error } = await supabase.from('parties').insert({
+      created_by: currentUser.id,
+      group_id: groupId
+    }).select().single()
+    if (error) { alert(error.message); setCreatingParty(false); return }
+
+    const rows = [currentUser.id, ...partySelection].map(user_id => ({ party_id: partyData.id, user_id }))
+    const { error: memberError } = await supabase.from('party_members').insert(rows)
+    if (memberError) { alert(memberError.message); setCreatingParty(false); return }
+
+    setCreatingParty(false)
+    setPartyPickerOpen(false)
+    setPartySelection(new Set())
+    navigate(`/party/${partyData.id}`)
+  }
+
   const renderSidebar = () => (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', height: '100%', overflowY: 'auto' }}>
       <div>
         <button onClick={() => navigate('/groups')} style={{ background: 'none', border: 'none', color: mutedColor, cursor: 'pointer', fontFamily: 'Inter, sans-serif', marginBottom: '1rem', padding: 0, fontSize: '0.9rem' }}>← Back to Groups</button>
         {canManageMembers && <button onClick={generateInvite} style={{ width: '100%', padding: '0.6rem', background: 'rgba(108,99,255,0.15)', color: '#a78bfa', border: '1px solid rgba(108,99,255,0.3)', borderRadius: '8px', cursor: 'pointer', fontFamily: 'Inter, sans-serif', fontWeight: '600', fontSize: '0.85rem', marginBottom: '0.75rem' }}>🔗 Copy Invite Link</button>}
+        <button onClick={() => setPartyPickerOpen(true)} style={{ width: '100%', padding: '0.6rem', background: 'rgba(16,185,129,0.1)', color: '#10b981', border: '1px solid rgba(16,185,129,0.3)', borderRadius: '8px', cursor: 'pointer', fontFamily: 'Inter, sans-serif', fontWeight: '600', fontSize: '0.85rem', marginBottom: '0.75rem' }}>
+          🎉 Start Party Chat
+        </button>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '0.75rem' }}>
           <div style={{ position: 'relative', flexShrink: 0 }}>
             {group?.icon_url ? (
@@ -1039,6 +1072,30 @@ export default function GroupChat({ theme }) {
           <div style={{ width: '280px', background: isLight ? '#f0f0f7' : '#0f0f1a', borderLeft: `1px solid ${border}`, padding: '1.5rem', overflowY: 'auto' }}>
             <button onClick={() => setSidebarOpen(false)} style={{ background: 'none', border: 'none', color: mutedColor, cursor: 'pointer', fontSize: '1.2rem', marginBottom: '1rem', padding: 0 }}>✕</button>
             {renderSidebar()}
+          </div>
+        </div>
+      )}
+
+      {partyPickerOpen && (
+        <div onClick={() => setPartyPickerOpen(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 300, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div onClick={e => e.stopPropagation()} style={{ background: isLight ? '#f0f0f7' : '#1a1a2e', border: `1px solid ${border}`, borderRadius: '16px', padding: '1.5rem', width: '90%', maxWidth: '380px', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+            <h3 style={{ fontWeight: '700', color: textColor, margin: 0 }}>🎉 Start a Party Chat</h3>
+            <p style={{ color: mutedColor, fontSize: '0.85rem', margin: 0 }}>Pick who to bring into a side chat outside the main group thread.</p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', maxHeight: '260px', overflowY: 'auto' }}>
+              {sortedMembers.map(m => (
+                <label key={m.id} style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', padding: '0.5rem', background: partySelection.has(m.user_id) ? 'rgba(16,185,129,0.1)' : inputBg, border: `1px solid ${partySelection.has(m.user_id) ? 'rgba(16,185,129,0.3)' : border}`, borderRadius: '8px', cursor: 'pointer' }}>
+                  <input type="checkbox" checked={partySelection.has(m.user_id)} onChange={() => togglePartySelection(m.user_id)} style={{ cursor: 'pointer' }} />
+                  <Avatar userId={m.user_id} size={26} />
+                  <span style={{ color: textColor, fontSize: '0.9rem' }}>{getName(m.user_id)}</span>
+                </label>
+              ))}
+            </div>
+            <div style={{ display: 'flex', gap: '0.75rem' }}>
+              <button onClick={createParty} disabled={creatingParty || partySelection.size === 0} style={{ flex: 1, padding: '0.65rem', background: 'linear-gradient(135deg, #6c63ff, #a78bfa)', color: 'white', border: 'none', borderRadius: '8px', cursor: creatingParty ? 'default' : 'pointer', fontFamily: 'Inter, sans-serif', fontWeight: '600', opacity: partySelection.size === 0 ? 0.6 : 1 }}>
+                {creatingParty ? 'Creating...' : `Start (${partySelection.size})`}
+              </button>
+              <button onClick={() => { setPartyPickerOpen(false); setPartySelection(new Set()) }} style={{ padding: '0.65rem 1rem', background: 'transparent', color: mutedColor, border: `1px solid ${border}`, borderRadius: '8px', cursor: 'pointer', fontFamily: 'Inter, sans-serif' }}>Cancel</button>
+            </div>
           </div>
         </div>
       )}
