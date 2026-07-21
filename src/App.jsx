@@ -22,7 +22,7 @@ import Notifications from './pages/Notifications';
 import Search from './pages/Search';
 import Messages from './pages/Messages';
 import AchievementsPage from './pages/AchievementsPage';
-import Leaderboard from './pages/Leaderboard';
+import Leaderboard from './pages/LeaderBoard';
 import AdminPanel from './pages/AdminPanel';
 import Feed from './pages/Feed';
 import LFG from './pages/LFG';
