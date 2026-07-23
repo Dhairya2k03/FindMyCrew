@@ -59,16 +59,22 @@ export default function UserProfile({ theme }) {
       try {
         const { data: sent } = await supabase.from('connections').select('*').eq('sender_id', user.id).eq('receiver_id', userId).single()
         if (sent) setConnectionStatus(sent.status)
-      } catch {}
+      } catch {
+        // .single() throws when no matching connection exists — safe to ignore
+      }
       try {
         const { data: received } = await supabase.from('connections').select('*').eq('receiver_id', user.id).eq('sender_id', userId).single()
         if (received) setConnectionStatus(received.status)
-      } catch {}
+      } catch {
+        // .single() throws when no matching connection exists — safe to ignore
+      }
 
       try {
         const { data: blocked } = await supabase.from('blocked_users').select('id').eq('blocker_id', user.id).eq('blocked_id', userId).single()
         setIsBlocked(!!blocked)
-      } catch {}
+      } catch {
+        // .single() throws when no block record exists — safe to ignore
+      }
 
       const { data: ach } = await supabase.from('achievements').select('*').eq('user_id', userId)
       setAchievements(ach || [])
@@ -76,7 +82,9 @@ export default function UserProfile({ theme }) {
       try {
         const { data: followData } = await supabase.from('follows').select('id').eq('follower_id', user.id).eq('following_id', userId).single()
         setIsFollowing(!!followData)
-      } catch {}
+      } catch {
+        // .single() throws when no follow record exists — safe to ignore
+      }
 
       const { count: fCount } = await supabase.from('follows').select('*', { count: 'exact', head: true }).eq('following_id', userId)
       setFollowerCount(fCount || 0)
