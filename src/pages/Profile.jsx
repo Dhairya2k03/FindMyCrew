@@ -181,8 +181,8 @@ export default function Profile() {
   const name = username || user?.email?.split('@')[0] || 'U'
   const color = avatarColors[name.charCodeAt(0) % avatarColors.length]
 
-  const inputStyle = { padding: '0.85rem 1rem', width: '100%', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.1)', marginBottom: '2rem', fontSize: '1rem', background: 'rgba(255,255,255,0.05)', color: 'white', fontFamily: 'Inter, sans-serif', outline: 'none', boxSizing: 'border-box' }
-  const labelStyle = { display: 'block', marginBottom: '0.5rem', fontWeight: '500', color: '#aaa', fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '0.05em' }
+  const inputStyle = { padding: '0.85rem 1rem', width: '100%', borderRadius: '10px', border: '1px solid var(--border2)', marginBottom: '2rem', fontSize: '1rem', background: 'var(--input)', color: 'var(--text)', fontFamily: 'Inter, sans-serif', outline: 'none', boxSizing: 'border-box' }
+  const labelStyle = { display: 'block', marginBottom: '0.5rem', fontWeight: '500', color: 'var(--text2)', fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '0.05em' }
 
   const formatMemberSince = (date) => {
     if (!date) return '—'
@@ -201,7 +201,7 @@ export default function Profile() {
       <h2 style={{ fontSize: '1.75rem', fontWeight: '700', marginBottom: '2rem' }}>Your Profile</h2>
 
       {/* Avatar */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginBottom: '1.5rem', padding: '1.5rem', background: 'rgba(255,255,255,0.03)', borderRadius: '16px', border: '1px solid rgba(255,255,255,0.08)' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginBottom: '1.5rem', padding: '1.5rem', background: 'var(--card)', borderRadius: '16px', border: '1px solid var(--border)' }}>
         <div style={{ position: 'relative', flexShrink: 0 }}>
           {avatarUrl ? (
             <img src={avatarUrl} alt="avatar" style={{ width: '64px', height: '64px', borderRadius: '50%', objectFit: 'cover' }} />
@@ -210,14 +210,14 @@ export default function Profile() {
               {name[0]?.toUpperCase()}
             </div>
           )}
-          <button onClick={() => avatarInputRef.current.click()} disabled={uploadingAvatar} style={{ position: 'absolute', bottom: '-4px', right: '-4px', width: '24px', height: '24px', borderRadius: '50%', background: '#6c63ff', border: '2px solid #0f0f1a', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.7rem' }}>
+          <button onClick={() => avatarInputRef.current.click()} disabled={uploadingAvatar} style={{ position: 'absolute', bottom: '-4px', right: '-4px', width: '24px', height: '24px', borderRadius: '50%', background: '#6c63ff', border: '2px solid var(--bg)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.7rem' }}>
             {uploadingAvatar ? '⏳' : '✏️'}
           </button>
           <input type="file" accept="image/*" ref={avatarInputRef} onChange={uploadAvatar} style={{ display: 'none' }} />
         </div>
         <div>
-          <p style={{ fontWeight: '600', fontSize: '1.1rem' }}>{name}</p>
-          <p style={{ color: '#888', fontSize: '0.85rem' }}>{user?.email}</p>
+          <p style={{ fontWeight: '600', fontSize: '1.1rem', color: 'var(--text)' }}>{name}</p>
+          <p style={{ color: 'var(--text2)', fontSize: '0.85rem' }}>{user?.email}</p>
           <p style={{ color: '#a78bfa', fontSize: '0.8rem', marginTop: '0.25rem', cursor: 'pointer' }} onClick={() => avatarInputRef.current.click()}>
             {uploadingAvatar ? 'Uploading...' : 'Change photo'}
           </p>
@@ -225,19 +225,19 @@ export default function Profile() {
       </div>
 
       {/* Stats & Activity */}
-      <div style={{ marginBottom: '1.5rem', padding: '1.5rem', background: 'rgba(255,255,255,0.03)', borderRadius: '16px', border: '1px solid rgba(255,255,255,0.08)' }}>
+      <div style={{ marginBottom: '1.5rem', padding: '1.5rem', background: 'var(--card)', borderRadius: '16px', border: '1px solid var(--border)' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
-          <p style={{ fontWeight: '600', fontSize: '0.95rem', margin: 0 }}>Stats & Activity</p>
-          <p style={{ color: '#666', fontSize: '0.78rem', margin: 0 }}>Member since {formatMemberSince(memberSince)}</p>
+          <p style={{ fontWeight: '600', fontSize: '0.95rem', margin: 0, color: 'var(--text)' }}>Stats & Activity</p>
+          <p style={{ color: 'var(--text3)', fontSize: '0.78rem', margin: 0 }}>Member since {formatMemberSince(memberSince)}</p>
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '0.75rem' }}>
           {STAT_CARDS.map(card => (
-            <div key={card.key} style={{ textAlign: 'center', padding: '0.85rem 0.5rem', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '12px' }}>
+            <div key={card.key} style={{ textAlign: 'center', padding: '0.85rem 0.5rem', background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: '12px' }}>
               <p style={{ fontSize: '1.3rem', marginBottom: '0.25rem' }}>{card.icon}</p>
               <p style={{ fontSize: '1.25rem', fontWeight: '700', margin: 0, color: '#a78bfa' }}>
                 {statsLoading ? '–' : stats[card.key]}
               </p>
-              <p style={{ fontSize: '0.72rem', color: '#888', margin: '0.15rem 0 0' }}>{card.label}</p>
+              <p style={{ fontSize: '0.72rem', color: 'var(--text2)', margin: '0.15rem 0 0' }}>{card.label}</p>
             </div>
           ))}
         </div>
@@ -246,18 +246,18 @@ export default function Profile() {
       {/* Privacy & Safety */}
       <div
         onClick={() => navigate('/blocked')}
-        style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginBottom: '2rem', padding: '1.25rem 1.5rem', background: 'rgba(255,255,255,0.03)', borderRadius: '16px', border: '1px solid rgba(255,255,255,0.08)', cursor: 'pointer', transition: 'border-color 0.2s' }}
+        style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginBottom: '2rem', padding: '1.25rem 1.5rem', background: 'var(--card)', borderRadius: '16px', border: '1px solid var(--border)', cursor: 'pointer', transition: 'border-color 0.2s' }}
         onMouseEnter={e => e.currentTarget.style.borderColor = 'rgba(108,99,255,0.3)'}
-        onMouseLeave={e => e.currentTarget.style.borderColor = 'rgba(255,255,255,0.08)'}
+        onMouseLeave={e => e.currentTarget.style.borderColor = 'var(--border)'}
       >
         <span style={{ fontSize: '1.4rem' }}>🚫</span>
         <div style={{ flex: 1 }}>
-          <p style={{ fontWeight: '600', fontSize: '0.95rem', margin: 0 }}>Blocked Users</p>
-          <p style={{ color: '#888', fontSize: '0.8rem', margin: '0.15rem 0 0' }}>
+          <p style={{ fontWeight: '600', fontSize: '0.95rem', margin: 0, color: 'var(--text)' }}>Blocked Users</p>
+          <p style={{ color: 'var(--text2)', fontSize: '0.8rem', margin: '0.15rem 0 0' }}>
             {blockedCount > 0 ? `${blockedCount} user${blockedCount !== 1 ? 's' : ''} blocked` : 'Manage who you\'ve blocked'}
           </p>
         </div>
-        <span style={{ color: '#555', fontSize: '1rem' }}>→</span>
+        <span style={{ color: 'var(--text3)', fontSize: '1rem' }}>→</span>
       </div>
 
       {/* Username */}
@@ -274,7 +274,7 @@ export default function Profile() {
         rows={3}
         style={{ ...inputStyle, resize: 'none', lineHeight: 1.5 }}
       />
-      <p style={{ color: '#555', fontSize: '0.75rem', marginTop: '-1.5rem', marginBottom: '2rem', textAlign: 'right' }}>{bio.length}/150</p>
+      <p style={{ color: 'var(--text3)', fontSize: '0.75rem', marginTop: '-1.5rem', marginBottom: '2rem', textAlign: 'right' }}>{bio.length}/150</p>
 
       {/* Discord */}
       <label style={labelStyle}>Discord Username</label>
@@ -293,7 +293,7 @@ export default function Profile() {
       <label style={labelStyle}>Your Platforms</label>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '2rem' }}>
         {PLATFORMS.map(({ id, label, icon }) => (
-          <button key={id} onClick={() => togglePlatform(id)} style={{ padding: '0.6rem 1.25rem', background: selectedPlatforms.includes(id) ? 'linear-gradient(135deg, #6c63ff, #a78bfa)' : 'rgba(255,255,255,0.05)', color: selectedPlatforms.includes(id) ? 'white' : '#888', border: selectedPlatforms.includes(id) ? 'none' : '1px solid rgba(255,255,255,0.1)', borderRadius: '100px', cursor: 'pointer', fontSize: '0.9rem', fontWeight: '500', fontFamily: 'Inter, sans-serif', boxShadow: selectedPlatforms.includes(id) ? '0 0 20px rgba(108, 99, 255, 0.3)' : 'none' }}>
+          <button key={id} onClick={() => togglePlatform(id)} style={{ padding: '0.6rem 1.25rem', background: selectedPlatforms.includes(id) ? 'linear-gradient(135deg, #6c63ff, #a78bfa)' : 'var(--bg3)', color: selectedPlatforms.includes(id) ? 'white' : 'var(--text2)', border: selectedPlatforms.includes(id) ? 'none' : '1px solid var(--border2)', borderRadius: '100px', cursor: 'pointer', fontSize: '0.9rem', fontWeight: '500', fontFamily: 'Inter, sans-serif', boxShadow: selectedPlatforms.includes(id) ? '0 0 20px rgba(108, 99, 255, 0.3)' : 'none' }}>
             {icon} {label}
           </button>
         ))}
@@ -305,19 +305,19 @@ export default function Profile() {
           <label style={labelStyle}>Search Games</label>
           <div style={{ position: 'relative', marginBottom: '1.5rem' }}>
             <input type="text" placeholder={`Search games on ${selectedPlatforms.map(p => PLATFORMS.find(pl => pl.id === p)?.label).join(', ')}...`} value={searchQuery} onChange={handleSearchChange} style={{ ...inputStyle, marginBottom: 0 }} />
-            {searching && <p style={{ color: '#888', fontSize: '0.85rem', marginTop: '0.5rem' }}>Searching...</p>}
+            {searching && <p style={{ color: 'var(--text2)', fontSize: '0.85rem', marginTop: '0.5rem' }}>Searching...</p>}
             {searchResults.length > 0 && (
               <div style={{ marginTop: '0.75rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
                 {searchResults.map(game => {
                   const isSelected = selectedGames.includes(game.name)
                   return (
-                    <div key={game.id} onClick={() => toggleGame(game.name)} style={{ display: 'flex', alignItems: 'center', gap: '1rem', padding: '0.75rem 1rem', background: isSelected ? 'rgba(108,99,255,0.15)' : 'rgba(255,255,255,0.03)', border: isSelected ? '1px solid rgba(108,99,255,0.4)' : '1px solid rgba(255,255,255,0.08)', borderRadius: '10px', cursor: 'pointer', transition: 'all 0.2s' }}>
+                    <div key={game.id} onClick={() => toggleGame(game.name)} style={{ display: 'flex', alignItems: 'center', gap: '1rem', padding: '0.75rem 1rem', background: isSelected ? 'rgba(108,99,255,0.15)' : 'var(--bg3)', border: isSelected ? '1px solid rgba(108,99,255,0.4)' : '1px solid var(--border)', borderRadius: '10px', cursor: 'pointer', transition: 'all 0.2s' }}>
                       {game.background_image && <img src={game.background_image} alt={game.name} style={{ width: '48px', height: '48px', borderRadius: '8px', objectFit: 'cover', flexShrink: 0 }} />}
                       <div style={{ flex: 1 }}>
-                        <p style={{ fontWeight: '600', fontSize: '0.95rem', marginBottom: '0.2rem' }}>{game.name}</p>
-                        <p style={{ color: '#888', fontSize: '0.8rem' }}>{game.platforms?.slice(0, 3).map(p => p.platform.name).join(', ')}</p>
+                        <p style={{ fontWeight: '600', fontSize: '0.95rem', marginBottom: '0.2rem', color: 'var(--text)' }}>{game.name}</p>
+                        <p style={{ color: 'var(--text2)', fontSize: '0.8rem' }}>{game.platforms?.slice(0, 3).map(p => p.platform.name).join(', ')}</p>
                       </div>
-                      <span style={{ color: isSelected ? '#a78bfa' : '#555', fontWeight: '600', fontSize: '0.85rem' }}>{isSelected ? '✓ Added' : '+ Add'}</span>
+                      <span style={{ color: isSelected ? '#a78bfa' : 'var(--text3)', fontWeight: '600', fontSize: '0.85rem' }}>{isSelected ? '✓ Added' : '+ Add'}</span>
                     </div>
                   )
                 })}
