@@ -7,7 +7,6 @@ export default function Search() {
   const [results, setResults] = useState([])
   const [loading, setLoading] = useState(false)
   const [searched, setSearched] = useState(false)
-  const [currentUser, setCurrentUser] = useState(null)
   const navigate = useNavigate()
 
   const search = async (q) => {
@@ -16,7 +15,6 @@ export default function Search() {
     setSearched(true)
 
     const { data: { user } } = await supabase.auth.getUser()
-    setCurrentUser(user)
 
     const { data } = await supabase
       .from('profiles')

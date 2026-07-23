@@ -9,7 +9,7 @@ const STATUS_COLORS = { open: '#10b981', full: '#f59e0b', closed: '#ef4444' }
 const STATUS_LABELS = { open: '🟢 Open', full: '🟡 Full', closed: '🔴 Closed' }
 const RAWG_KEY = import.meta.env.VITE_RAWG_API_KEY
 
-const GameSearch = ({ value, onChange, inputStyle, textColor, border, inputBg, inputBorder, mutedColor }) => {
+const GameSearch = ({ value, onChange, inputStyle, textColor, border, inputBg, mutedColor }) => {
   const [query, setQuery] = useState(value || '')
   const [results, setResults] = useState([])
   const [searching, setSearching] = useState(false)
@@ -35,7 +35,9 @@ const GameSearch = ({ value, onChange, inputStyle, textColor, border, inputBg, i
       const res = await fetch(`https://api.rawg.io/api/games?key=${RAWG_KEY}&search=${encodeURIComponent(q)}&page_size=8`)
       const data = await res.json()
       setResults(data.results || [])
-    } catch {}
+    } catch {
+      // RAWG lookup failed — leave results empty, no need to surface an error to the user
+    }
     setSearching(false)
   }
 

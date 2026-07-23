@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabaseClient'
-import { checkAndAwardAchievements } from '../lib/achievements'
 
 export default function Connections() {
   const [received, setReceived] = useState([])

@@ -13,11 +13,6 @@ const formatLastSeen = (date) => {
   return `Last seen ${d.toLocaleDateString()}`
 }
 
-const formatTimestamp = (timestamp) => {
-  const date = new Date(timestamp)
-  return date.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true })
-}
-
 const formatShortTime = (timestamp) => {
   return new Date(timestamp).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })
 }
