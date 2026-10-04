@@ -12,17 +12,17 @@ const ACHIEVEMENT_POINTS = {
 
 export const awardAchievement = async (userId, type) => {
   try {
-    // Check first so we only add points on a genuinely new award — the
-    // upsert alone can't tell us whether the row already existed.
-    const { data: existing } = await supabase
+    // ignoreDuplicates makes this a single atomic "insert if not exists":
+    // on conflict, Postgres skips the row and returns nothing for it, so
+    // a separate check-then-insert (which two concurrent calls could both
+    // pass) is no longer needed — only the call that actually inserted a
+    // new row gets a row back here.
+    const { data: inserted, error } = await supabase
       .from('achievements')
+      .upsert({ user_id: userId, type }, { onConflict: 'user_id,type', ignoreDuplicates: true })
       .select('id')
-      .eq('user_id', userId)
-      .eq('type', type)
-      .maybeSingle()
-    if (existing) return
-
-    await supabase.from('achievements').upsert({ user_id: userId, type }, { onConflict: 'user_id,type' })
+    if (error) throw error
+    if (!inserted || inserted.length === 0) return // already had this achievement
 
     const points = ACHIEVEMENT_POINTS[type] || 0
     if (points > 0) {
