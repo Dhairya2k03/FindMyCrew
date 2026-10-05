@@ -9,3 +9,6 @@ node_modules/
 dist/
 .vercel
 .env*
+
+# Supabase CLI local state (project ref, pooler URL, etc — shouldn't be public)
+supabase/.temp/

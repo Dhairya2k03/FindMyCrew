@@ -108,7 +108,7 @@ export default function App() {
       />
 
       <Routes>
-        <Route path="/login" element={user ? <Navigate to="/" /> : <Login />} />
+        <Route path="/login" element={user ? <Navigate to="/" /> : <Login theme={theme} />} />
         <Route path="/reset-password" element={<ResetPassword />} />
 
         {/* Protected Routes */}
